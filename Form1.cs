@@ -38,7 +38,7 @@ namespace YOLOForAim
         private readonly Stopwatch inferenceFpsUiStopwatch = new();
         private readonly object latestFrameLock = new();
         private readonly object overlayStateLock = new();
-        private WindowGraphicsCapture? windowCapture;
+        private DesktopDuplicationCapture? windowCapture;
         private CapturedPixelFrame? latestCapturedFrame;
         private int latestCapturedFrameVersion;
         private Rectangle latestOverlayCaptureBounds;
@@ -143,7 +143,7 @@ namespace YOLOForAim
                 yoloDetector?.Dispose();
                 yoloDetector = new YoloDetector(modelPath, new DetectorOptions(chkPreferGpu.Checked, (float)numScoreThreshold.Value / 100f));
                 windowCapture?.Dispose();
-                windowCapture = new WindowGraphicsCapture(selectedHwnd);
+                windowCapture = new DesktopDuplicationCapture(selectedHwnd);
             }
             catch (Exception ex)
             {
