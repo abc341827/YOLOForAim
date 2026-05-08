@@ -18,7 +18,7 @@ namespace YOLOForAim
 
         private IntPtr selectedHwnd = IntPtr.Zero;
         private bool hotKeyRegistered;
-        private readonly string modelPath = Path.Combine(AppContext.BaseDirectory, "dawn.onnx");
+        private readonly string modelPath = Path.Combine(AppContext.BaseDirectory, "exp.onnx");
         private CancellationTokenSource? detectionCancellationTokenSource;
         private Task? captureTask;
         private Task? inferenceTask;
