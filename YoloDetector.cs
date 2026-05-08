@@ -17,6 +17,7 @@ internal sealed class YoloDetector : IDisposable
     private readonly int inputHeight;
     private readonly TensorElementType inputElementType;
     private readonly string executionProvider;
+    private readonly string executionProviderDetails;
 
     public string ModelSummary { get; }
 
@@ -27,7 +28,7 @@ internal sealed class YoloDetector : IDisposable
             GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL
         };
 
-        executionProvider = ConfigureExecutionProvider(sessionOptions, detectorOptions.PreferGpu);
+        (executionProvider, executionProviderDetails) = ConfigureExecutionProvider(sessionOptions, detectorOptions.PreferGpu);
 
         session = new InferenceSession(modelPath, sessionOptions);
         inputName = session.InputMetadata.Keys.First();
@@ -69,21 +70,21 @@ internal sealed class YoloDetector : IDisposable
         session.Dispose();
     }
 
-    private static string ConfigureExecutionProvider(SessionOptions sessionOptions, bool preferGpu)
+    private static (string Provider, string Details) ConfigureExecutionProvider(SessionOptions sessionOptions, bool preferGpu)
     {
         if (!preferGpu)
         {
-            return "CPU";
+            return ("CPU", "未勾选 GPU 优先，当前使用 CPU。");
         }
 
         try
         {
             sessionOptions.AppendExecutionProvider_DML(0);
-            return "DirectML(GPU)";
+            return ("DirectML(GPU)", "DirectML 初始化成功。");
         }
-        catch
+        catch (Exception ex)
         {
-            return "CPU(DirectML不可用，已回退)";
+            return ("CPU(DirectML不可用，已回退)", ex.Message);
         }
     }
 
@@ -498,6 +499,7 @@ internal sealed class YoloDetector : IDisposable
             $"输入: {inputName}",
             $"输入类型: {inputElementType}",
             $"执行设备: {executionProvider}",
+            $"设备说明: {executionProviderDetails}",
             $"输入形状: [1, 3, {inputHeight}, {inputWidth}]",
             "预处理: RGB / 归一化到 0-1 / NCHW / Letterbox",
             "输出:"

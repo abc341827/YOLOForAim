@@ -38,12 +38,30 @@
             this.chkPreferGpu = new System.Windows.Forms.CheckBox();
             this.numPreviewInterval = new System.Windows.Forms.NumericUpDown();
             this.lblPreviewInterval = new System.Windows.Forms.Label();
+            this.lblAimHeightPercent = new System.Windows.Forms.Label();
+            this.numAimHeightPercent = new System.Windows.Forms.NumericUpDown();
+            this.lblAimDeadzone = new System.Windows.Forms.Label();
+            this.numAimDeadzone = new System.Windows.Forms.NumericUpDown();
+            this.lblAimSmoothing = new System.Windows.Forms.Label();
+            this.numAimSmoothing = new System.Windows.Forms.NumericUpDown();
+            this.lblAimMaxStep = new System.Windows.Forms.Label();
+            this.numAimMaxStep = new System.Windows.Forms.NumericUpDown();
+            this.lblAimSwitchDistance = new System.Windows.Forms.Label();
+            this.numAimSwitchDistance = new System.Windows.Forms.NumericUpDown();
+            this.lblAimMaxMissedFrames = new System.Windows.Forms.Label();
+            this.numAimMaxMissedFrames = new System.Windows.Forms.NumericUpDown();
             this.lblHandle = new System.Windows.Forms.Label();
             this.lblStatus = new System.Windows.Forms.Label();
             this.pictureBoxPreview = new System.Windows.Forms.PictureBox();
             this.txtDiagnostics = new System.Windows.Forms.TextBox();
             ((System.ComponentModel.ISupportInitialize)(this.numRoiSize)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numPreviewInterval)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimHeightPercent)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimDeadzone)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimSmoothing)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimMaxStep)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimSwitchDistance)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimMaxMissedFrames)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBoxPreview)).BeginInit();
             this.SuspendLayout();
             // 
@@ -162,51 +180,224 @@
             this.lblPreviewInterval.TabIndex = 8;
             this.lblPreviewInterval.Text = "预览刷新间隔(帧)";
             // 
+            // lblAimHeightPercent
+            // 
+            this.lblAimHeightPercent.AutoSize = true;
+            this.lblAimHeightPercent.Location = new System.Drawing.Point(12, 110);
+            this.lblAimHeightPercent.Name = "lblAimHeightPercent";
+            this.lblAimHeightPercent.Size = new System.Drawing.Size(95, 15);
+            this.lblAimHeightPercent.TabIndex = 9;
+            this.lblAimHeightPercent.Text = "瞄准高度(%)";
+            // 
+            // numAimHeightPercent
+            // 
+            this.numAimHeightPercent.Location = new System.Drawing.Point(113, 108);
+            this.numAimHeightPercent.Minimum = new decimal(new int[] {
+            1,
+            0,
+            0,
+            0});
+            this.numAimHeightPercent.Name = "numAimHeightPercent";
+            this.numAimHeightPercent.Size = new System.Drawing.Size(56, 23);
+            this.numAimHeightPercent.TabIndex = 10;
+            this.numAimHeightPercent.Value = new decimal(new int[] {
+            20,
+            0,
+            0,
+            0});
+            // 
+            // lblAimDeadzone
+            // 
+            this.lblAimDeadzone.AutoSize = true;
+            this.lblAimDeadzone.Location = new System.Drawing.Point(181, 110);
+            this.lblAimDeadzone.Name = "lblAimDeadzone";
+            this.lblAimDeadzone.Size = new System.Drawing.Size(71, 15);
+            this.lblAimDeadzone.TabIndex = 11;
+            this.lblAimDeadzone.Text = "停止范围";
+            // 
+            // numAimDeadzone
+            // 
+            this.numAimDeadzone.Location = new System.Drawing.Point(258, 108);
+            this.numAimDeadzone.Minimum = new decimal(new int[] {
+            1,
+            0,
+            0,
+            0});
+            this.numAimDeadzone.Name = "numAimDeadzone";
+            this.numAimDeadzone.Size = new System.Drawing.Size(56, 23);
+            this.numAimDeadzone.TabIndex = 12;
+            this.numAimDeadzone.Value = new decimal(new int[] {
+            12,
+            0,
+            0,
+            0});
+            // 
+            // lblAimSmoothing
+            // 
+            this.lblAimSmoothing.AutoSize = true;
+            this.lblAimSmoothing.Location = new System.Drawing.Point(326, 110);
+            this.lblAimSmoothing.Name = "lblAimSmoothing";
+            this.lblAimSmoothing.Size = new System.Drawing.Size(83, 15);
+            this.lblAimSmoothing.TabIndex = 13;
+            this.lblAimSmoothing.Text = "平滑强度(%)";
+            // 
+            // numAimSmoothing
+            // 
+            this.numAimSmoothing.Location = new System.Drawing.Point(415, 108);
+            this.numAimSmoothing.Minimum = new decimal(new int[] {
+            1,
+            0,
+            0,
+            0});
+            this.numAimSmoothing.Name = "numAimSmoothing";
+            this.numAimSmoothing.Size = new System.Drawing.Size(56, 23);
+            this.numAimSmoothing.TabIndex = 14;
+            this.numAimSmoothing.Value = new decimal(new int[] {
+            35,
+            0,
+            0,
+            0});
+            // 
+            // lblAimMaxStep
+            // 
+            this.lblAimMaxStep.AutoSize = true;
+            this.lblAimMaxStep.Location = new System.Drawing.Point(483, 110);
+            this.lblAimMaxStep.Name = "lblAimMaxStep";
+            this.lblAimMaxStep.Size = new System.Drawing.Size(71, 15);
+            this.lblAimMaxStep.TabIndex = 15;
+            this.lblAimMaxStep.Text = "单次上限";
+            // 
+            // numAimMaxStep
+            // 
+            this.numAimMaxStep.Location = new System.Drawing.Point(560, 108);
+            this.numAimMaxStep.Minimum = new decimal(new int[] {
+            1,
+            0,
+            0,
+            0});
+            this.numAimMaxStep.Name = "numAimMaxStep";
+            this.numAimMaxStep.Size = new System.Drawing.Size(56, 23);
+            this.numAimMaxStep.TabIndex = 16;
+            this.numAimMaxStep.Value = new decimal(new int[] {
+            36,
+            0,
+            0,
+            0});
+            // 
+            // lblAimSwitchDistance
+            // 
+            this.lblAimSwitchDistance.AutoSize = true;
+            this.lblAimSwitchDistance.Location = new System.Drawing.Point(12, 139);
+            this.lblAimSwitchDistance.Name = "lblAimSwitchDistance";
+            this.lblAimSwitchDistance.Size = new System.Drawing.Size(95, 15);
+            this.lblAimSwitchDistance.TabIndex = 17;
+            this.lblAimSwitchDistance.Text = "切换距离阈值";
+            // 
+            // numAimSwitchDistance
+            // 
+            this.numAimSwitchDistance.Location = new System.Drawing.Point(113, 137);
+            this.numAimSwitchDistance.Maximum = new decimal(new int[] {
+            1000,
+            0,
+            0,
+            0});
+            this.numAimSwitchDistance.Minimum = new decimal(new int[] {
+            1,
+            0,
+            0,
+            0});
+            this.numAimSwitchDistance.Name = "numAimSwitchDistance";
+            this.numAimSwitchDistance.Size = new System.Drawing.Size(56, 23);
+            this.numAimSwitchDistance.TabIndex = 18;
+            this.numAimSwitchDistance.Value = new decimal(new int[] {
+            140,
+            0,
+            0,
+            0});
+            // 
+            // lblAimMaxMissedFrames
+            // 
+            this.lblAimMaxMissedFrames.AutoSize = true;
+            this.lblAimMaxMissedFrames.Location = new System.Drawing.Point(181, 139);
+            this.lblAimMaxMissedFrames.Name = "lblAimMaxMissedFrames";
+            this.lblAimMaxMissedFrames.Size = new System.Drawing.Size(71, 15);
+            this.lblAimMaxMissedFrames.TabIndex = 19;
+            this.lblAimMaxMissedFrames.Text = "容忍丢帧";
+            // 
+            // numAimMaxMissedFrames
+            // 
+            this.numAimMaxMissedFrames.Location = new System.Drawing.Point(258, 137);
+            this.numAimMaxMissedFrames.Minimum = new decimal(new int[] {
+            1,
+            0,
+            0,
+            0});
+            this.numAimMaxMissedFrames.Name = "numAimMaxMissedFrames";
+            this.numAimMaxMissedFrames.Size = new System.Drawing.Size(56, 23);
+            this.numAimMaxMissedFrames.TabIndex = 20;
+            this.numAimMaxMissedFrames.Value = new decimal(new int[] {
+            3,
+            0,
+            0,
+            0});
+            // 
             // lblHandle
             // 
             this.lblHandle.AutoSize = true;
             this.lblHandle.Location = new System.Drawing.Point(12, 51);
             this.lblHandle.Name = "lblHandle";
             this.lblHandle.Size = new System.Drawing.Size(120, 15);
-            this.lblHandle.TabIndex = 9;
+            this.lblHandle.TabIndex = 21;
             this.lblHandle.Text = "选中窗口句柄: (无)";
             // 
             // lblStatus
             // 
             this.lblStatus.AutoSize = true;
-            this.lblStatus.Location = new System.Drawing.Point(12, 110);
+            this.lblStatus.Location = new System.Drawing.Point(12, 169);
             this.lblStatus.Name = "lblStatus";
             this.lblStatus.Size = new System.Drawing.Size(43, 15);
-            this.lblStatus.TabIndex = 10;
+            this.lblStatus.TabIndex = 22;
             this.lblStatus.Text = "未启动";
             // 
             // pictureBoxPreview
             // 
             this.pictureBoxPreview.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.pictureBoxPreview.Location = new System.Drawing.Point(12, 137);
+            this.pictureBoxPreview.Location = new System.Drawing.Point(12, 196);
             this.pictureBoxPreview.Name = "pictureBoxPreview";
             this.pictureBoxPreview.Size = new System.Drawing.Size(776, 330);
             this.pictureBoxPreview.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
-            this.pictureBoxPreview.TabIndex = 11;
+            this.pictureBoxPreview.TabIndex = 23;
             this.pictureBoxPreview.TabStop = false;
             // 
             // txtDiagnostics
             // 
-            this.txtDiagnostics.Location = new System.Drawing.Point(12, 473);
+            this.txtDiagnostics.Location = new System.Drawing.Point(12, 532);
             this.txtDiagnostics.Multiline = true;
             this.txtDiagnostics.Name = "txtDiagnostics";
             this.txtDiagnostics.ReadOnly = true;
             this.txtDiagnostics.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
             this.txtDiagnostics.Size = new System.Drawing.Size(776, 154);
-            this.txtDiagnostics.TabIndex = 12;
+            this.txtDiagnostics.TabIndex = 24;
             // 
             // Form1
             // 
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(800, 640);
+            ClientSize = new Size(800, 700);
             Controls.Add(this.txtDiagnostics);
             Controls.Add(this.pictureBoxPreview);
             Controls.Add(this.lblStatus);
+            Controls.Add(this.numAimMaxMissedFrames);
+            Controls.Add(this.lblAimMaxMissedFrames);
+            Controls.Add(this.numAimSwitchDistance);
+            Controls.Add(this.lblAimSwitchDistance);
+            Controls.Add(this.numAimMaxStep);
+            Controls.Add(this.lblAimMaxStep);
+            Controls.Add(this.numAimSmoothing);
+            Controls.Add(this.lblAimSmoothing);
+            Controls.Add(this.numAimDeadzone);
+            Controls.Add(this.lblAimDeadzone);
+            Controls.Add(this.numAimHeightPercent);
+            Controls.Add(this.lblAimHeightPercent);
             Controls.Add(this.lblPreviewInterval);
             Controls.Add(this.numPreviewInterval);
             Controls.Add(this.chkPreferGpu);
@@ -221,6 +412,12 @@
             Text = "YOLO 实时检测";
             ((System.ComponentModel.ISupportInitialize)(this.numRoiSize)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numPreviewInterval)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimHeightPercent)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimDeadzone)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimSmoothing)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimMaxStep)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimSwitchDistance)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimMaxMissedFrames)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBoxPreview)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
@@ -235,6 +432,18 @@
         private System.Windows.Forms.CheckBox chkPreferGpu;
         private System.Windows.Forms.NumericUpDown numPreviewInterval;
         private System.Windows.Forms.Label lblPreviewInterval;
+        private System.Windows.Forms.Label lblAimHeightPercent;
+        private System.Windows.Forms.NumericUpDown numAimHeightPercent;
+        private System.Windows.Forms.Label lblAimDeadzone;
+        private System.Windows.Forms.NumericUpDown numAimDeadzone;
+        private System.Windows.Forms.Label lblAimSmoothing;
+        private System.Windows.Forms.NumericUpDown numAimSmoothing;
+        private System.Windows.Forms.Label lblAimMaxStep;
+        private System.Windows.Forms.NumericUpDown numAimMaxStep;
+        private System.Windows.Forms.Label lblAimSwitchDistance;
+        private System.Windows.Forms.NumericUpDown numAimSwitchDistance;
+        private System.Windows.Forms.Label lblAimMaxMissedFrames;
+        private System.Windows.Forms.NumericUpDown numAimMaxMissedFrames;
         private System.Windows.Forms.Label lblHandle;
         private System.Windows.Forms.Label lblStatus;
         private System.Windows.Forms.PictureBox pictureBoxPreview;

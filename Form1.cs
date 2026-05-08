@@ -30,6 +30,14 @@ namespace YOLOForAim
         private bool currentCenterRoiOnly;
         private int currentRoiSize;
         private int currentPreviewInterval;
+        private float currentAimPointHeightRatio;
+        private float currentAimDeadzonePixels;
+        private float currentAimSmoothingFactor;
+        private float currentAimMaxStepPixels;
+        private float currentAimLockSwitchDistancePixels;
+        private int currentAimMaxMissedFrames;
+        private PointF? lockedTargetScreenPoint;
+        private int missedTargetFrames;
 
         public Form1()
         {
@@ -39,6 +47,12 @@ namespace YOLOForAim
             chkCenterRoi.Checked = false;
             numRoiSize.Value = 640;
             numPreviewInterval.Value = 1;
+            numAimHeightPercent.Value = 20;
+            numAimDeadzone.Value = 12;
+            numAimSmoothing.Value = 35;
+            numAimMaxStep.Value = 36;
+            numAimSwitchDistance.Value = 140;
+            numAimMaxMissedFrames.Value = 3;
         }
 
         private void btnSelectWindow_Click(object? sender, EventArgs e)
@@ -96,9 +110,17 @@ namespace YOLOForAim
             detectionCancellationTokenSource = new CancellationTokenSource();
             diagnosticsRefreshCounter = 0;
             processedFrameCounter = 0;
+            lockedTargetScreenPoint = null;
+            missedTargetFrames = 0;
             currentCenterRoiOnly = chkCenterRoi.Checked;
             currentRoiSize = (int)numRoiSize.Value;
             currentPreviewInterval = Math.Max(1, (int)numPreviewInterval.Value);
+            currentAimPointHeightRatio = (float)numAimHeightPercent.Value / 100f;
+            currentAimDeadzonePixels = (float)numAimDeadzone.Value;
+            currentAimSmoothingFactor = (float)numAimSmoothing.Value / 100f;
+            currentAimMaxStepPixels = (float)numAimMaxStep.Value;
+            currentAimLockSwitchDistancePixels = (float)numAimSwitchDistance.Value;
+            currentAimMaxMissedFrames = Math.Max(1, (int)numAimMaxMissedFrames.Value);
             captureTask = Task.Run(() => RunCaptureLoopAsync(detectionCancellationTokenSource.Token), detectionCancellationTokenSource.Token);
             inferenceTask = Task.Run(() => RunInferenceLoopAsync(detectionCancellationTokenSource.Token), detectionCancellationTokenSource.Token);
 
@@ -219,6 +241,8 @@ namespace YOLOForAim
                     latestCapturedBounds = Rectangle.Empty;
                     latestCapturedFrameVersion = 0;
                 }
+                lockedTargetScreenPoint = null;
+                missedTargetFrames = 0;
                 btnStartDetection.Enabled = true;
                 btnStopDetection.Enabled = false;
                 lblStatus.Text = "检测已停止。";
@@ -396,26 +420,51 @@ namespace YOLOForAim
 
         private void TryMoveMouseToNearestDetection(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds)
         {
-            if (captureBounds.IsEmpty || detections.Count == 0 || !IsLeftMouseButtonDown())
+            if (captureBounds.IsEmpty || !IsLeftMouseButtonDown())
             {
+                lockedTargetScreenPoint = null;
+                missedTargetFrames = 0;
+                return;
+            }
+
+            if (detections.Count == 0)
+            {
+                missedTargetFrames++;
+                if (missedTargetFrames >= currentAimMaxMissedFrames)
+                {
+                    lockedTargetScreenPoint = null;
+                }
                 return;
             }
 
             Point cursorPosition = Cursor.Position;
             DetectionResult? nearestDetection = null;
+            PointF nearestTargetPoint = PointF.Empty;
             double nearestDistanceSquared = double.MaxValue;
 
             foreach (DetectionResult detection in detections)
             {
-                double targetX = captureBounds.Left + detection.Box.X + (detection.Box.Width / 2d);
-                double targetY = captureBounds.Top + detection.Box.Y + (detection.Box.Height / 2d);
-                double deltaX = targetX - cursorPosition.X;
-                double deltaY = targetY - cursorPosition.Y;
+                PointF targetPoint = GetAimPoint(captureBounds, detection);
+                double deltaX;
+                double deltaY;
+
+                if (lockedTargetScreenPoint is not null)
+                {
+                    deltaX = targetPoint.X - lockedTargetScreenPoint.Value.X;
+                    deltaY = targetPoint.Y - lockedTargetScreenPoint.Value.Y;
+                }
+                else
+                {
+                    deltaX = targetPoint.X - cursorPosition.X;
+                    deltaY = targetPoint.Y - cursorPosition.Y;
+                }
+
                 double distanceSquared = (deltaX * deltaX) + (deltaY * deltaY);
                 if (distanceSquared < nearestDistanceSquared)
                 {
                     nearestDistanceSquared = distanceSquared;
                     nearestDetection = detection;
+                    nearestTargetPoint = targetPoint;
                 }
             }
 
@@ -424,14 +473,51 @@ namespace YOLOForAim
                 return;
             }
 
-            int moveX = (int)Math.Round(captureBounds.Left + nearestDetection.Box.X + (nearestDetection.Box.Width / 2d) - cursorPosition.X);
-            int moveY = (int)Math.Round(captureBounds.Top + nearestDetection.Box.Y + (nearestDetection.Box.Height / 2d) - cursorPosition.Y);
-            if (moveX == 0 && moveY == 0)
+            if (lockedTargetScreenPoint is not null && Math.Sqrt(nearestDistanceSquared) > currentAimLockSwitchDistancePixels)
+            {
+                missedTargetFrames++;
+                if (missedTargetFrames < currentAimMaxMissedFrames)
+                {
+                    return;
+                }
+            }
+
+            lockedTargetScreenPoint = nearestTargetPoint;
+            missedTargetFrames = 0;
+
+            float rawMoveX = nearestTargetPoint.X - cursorPosition.X;
+            float rawMoveY = nearestTargetPoint.Y - cursorPosition.Y;
+            float distanceToAimPoint = MathF.Sqrt((rawMoveX * rawMoveX) + (rawMoveY * rawMoveY));
+            if (distanceToAimPoint <= currentAimDeadzonePixels)
             {
                 return;
             }
 
-            SendRelativeMouseMove(moveX, moveY);
+            float moveX = rawMoveX * currentAimSmoothingFactor;
+            float moveY = rawMoveY * currentAimSmoothingFactor;
+            float smoothedDistance = MathF.Sqrt((moveX * moveX) + (moveY * moveY));
+            if (smoothedDistance > currentAimMaxStepPixels)
+            {
+                float scale = currentAimMaxStepPixels / smoothedDistance;
+                moveX *= scale;
+                moveY *= scale;
+            }
+
+            int finalMoveX = (int)Math.Round(moveX);
+            int finalMoveY = (int)Math.Round(moveY);
+            if (finalMoveX == 0 && finalMoveY == 0)
+            {
+                return;
+            }
+
+            SendRelativeMouseMove(finalMoveX, finalMoveY);
+        }
+
+        private PointF GetAimPoint(Rectangle captureBounds, DetectionResult detection)
+        {
+            return new PointF(
+                captureBounds.Left + detection.Box.X + (detection.Box.Width / 2f),
+                captureBounds.Top + detection.Box.Y + (detection.Box.Height * currentAimPointHeightRatio));
         }
 
         private static bool IsLeftMouseButtonDown()
