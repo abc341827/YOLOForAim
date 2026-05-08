@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
@@ -14,10 +15,27 @@ namespace YOLOForAim
 
         private IntPtr selectedHwnd = IntPtr.Zero;
         private bool hotKeyRegistered;
+        private readonly string modelPath = Path.Combine(AppContext.BaseDirectory, "dawn.onnx");
+        private CancellationTokenSource? detectionCancellationTokenSource;
+        private Task? captureTask;
+        private Task? inferenceTask;
+        private YoloDetector? yoloDetector;
+        private int diagnosticsRefreshCounter;
+        private int processedFrameCounter;
+        private readonly object latestFrameLock = new();
+        private Bitmap? latestCapturedFrame;
+        private int latestCapturedFrameVersion;
+        private bool currentCenterRoiOnly;
+        private int currentRoiSize;
+        private int currentPreviewInterval;
 
         public Form1()
         {
             InitializeComponent();
+            lblStatus.Text = $"模型路径: {modelPath}";
+            txtDiagnostics.Text = $"模型路径: {modelPath}";
+            numRoiSize.Value = 640;
+            numPreviewInterval.Value = 3;
         }
 
         private void btnSelectWindow_Click(object? sender, EventArgs e)
@@ -27,12 +45,63 @@ namespace YOLOForAim
             {
                 selectedHwnd = overlay.SelectedHandle;
                 lblHandle.Text = $"选中窗口句柄: {selectedHwnd}";
+                lblStatus.Text = "已选中目标窗口。";
             }
         }
 
         private void btnSendMouseUp_Click(object? sender, EventArgs e)
         {
             SendMouseMoveUp();
+        }
+
+        private void btnStartDetection_Click(object? sender, EventArgs e)
+        {
+            if (selectedHwnd == IntPtr.Zero)
+            {
+                MessageBox.Show("请先选择目标窗口。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            if (captureTask is not null || inferenceTask is not null)
+            {
+                return;
+            }
+
+            if (!File.Exists(modelPath))
+            {
+                MessageBox.Show($"未找到模型文件: {modelPath}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            try
+            {
+                yoloDetector?.Dispose();
+                yoloDetector = new YoloDetector(modelPath, new DetectorOptions(chkPreferGpu.Checked));
+                txtDiagnostics.Text = yoloDetector.ModelSummary;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"模型加载失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            detectionCancellationTokenSource = new CancellationTokenSource();
+            diagnosticsRefreshCounter = 0;
+            processedFrameCounter = 0;
+            currentCenterRoiOnly = chkCenterRoi.Checked;
+            currentRoiSize = (int)numRoiSize.Value;
+            currentPreviewInterval = Math.Max(1, (int)numPreviewInterval.Value);
+            captureTask = Task.Run(() => RunCaptureLoopAsync(detectionCancellationTokenSource.Token), detectionCancellationTokenSource.Token);
+            inferenceTask = Task.Run(() => RunInferenceLoopAsync(detectionCancellationTokenSource.Token), detectionCancellationTokenSource.Token);
+
+            btnStartDetection.Enabled = false;
+            btnStopDetection.Enabled = true;
+            lblStatus.Text = $"检测中... ROI={(currentCenterRoiOnly ? $"中心 {currentRoiSize}" : "全窗口")}, 预览每 {currentPreviewInterval} 帧刷新";
+        }
+
+        private async void btnStopDetection_Click(object? sender, EventArgs e)
+        {
+            await StopDetectionAsync();
         }
 
         protected override void OnHandleCreated(EventArgs e)
@@ -54,7 +123,34 @@ namespace YOLOForAim
                 hotKeyRegistered = false;
             }
 
+            detectionCancellationTokenSource?.Cancel();
+
             base.OnHandleDestroyed(e);
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            detectionCancellationTokenSource?.Cancel();
+
+            try
+            {
+                captureTask?.Wait(500);
+                inferenceTask?.Wait(500);
+            }
+            catch
+            {
+            }
+
+            lock (latestFrameLock)
+            {
+                latestCapturedFrame?.Dispose();
+                latestCapturedFrame = null;
+            }
+
+            pictureBoxPreview.Image?.Dispose();
+            yoloDetector?.Dispose();
+            detectionCancellationTokenSource?.Dispose();
+            base.OnFormClosed(e);
         }
 
         protected override void WndProc(ref Message m)
@@ -103,6 +199,231 @@ namespace YOLOForAim
             }
         }
 
+        private async Task StopDetectionAsync()
+        {
+            if (captureTask is null && inferenceTask is null)
+            {
+                btnStartDetection.Enabled = true;
+                btnStopDetection.Enabled = false;
+                return;
+            }
+
+            detectionCancellationTokenSource?.Cancel();
+
+            try
+            {
+                var runningTasks = new[] { captureTask, inferenceTask }
+                    .Where(static task => task is not null)
+                    .Cast<Task>()
+                    .ToArray();
+                await Task.WhenAll(runningTasks);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                captureTask = null;
+                inferenceTask = null;
+                detectionCancellationTokenSource?.Dispose();
+                detectionCancellationTokenSource = null;
+                lock (latestFrameLock)
+                {
+                    latestCapturedFrame?.Dispose();
+                    latestCapturedFrame = null;
+                    latestCapturedFrameVersion = 0;
+                }
+                btnStartDetection.Enabled = true;
+                btnStopDetection.Enabled = false;
+                lblStatus.Text = "检测已停止。";
+            }
+        }
+
+        private async Task RunCaptureLoopAsync(CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    Bitmap? frame = CaptureWindow(selectedHwnd, currentCenterRoiOnly, currentRoiSize);
+                    if (frame is null)
+                    {
+                        await Task.Delay(30, cancellationToken);
+                        continue;
+                    }
+
+                    lock (latestFrameLock)
+                    {
+                        latestCapturedFrame?.Dispose();
+                        latestCapturedFrame = frame;
+                        latestCapturedFrameVersion++;
+                    }
+
+                    await Task.Delay(5, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    if (!IsDisposed)
+                    {
+                        BeginInvoke(new Action(async () =>
+                        {
+                            await StopDetectionAsync();
+                            MessageBox.Show($"检测过程中发生错误: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        }));
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        private async Task RunInferenceLoopAsync(CancellationToken cancellationToken)
+        {
+            int processedVersion = -1;
+
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    Bitmap? frameToProcess = null;
+                    int currentVersion;
+                    lock (latestFrameLock)
+                    {
+                        currentVersion = latestCapturedFrameVersion;
+                        if (latestCapturedFrame is not null && currentVersion != processedVersion)
+                        {
+                            frameToProcess = (Bitmap)latestCapturedFrame.Clone();
+                            processedVersion = currentVersion;
+                        }
+                    }
+
+                    if (frameToProcess is null)
+                    {
+                        await Task.Delay(5, cancellationToken);
+                        continue;
+                    }
+
+                    using (frameToProcess)
+                    {
+                        DetectionRunResult result = yoloDetector?.Detect(frameToProcess) ?? new DetectionRunResult(Array.Empty<DetectionResult>(), "检测器未初始化。");
+                        processedFrameCounter++;
+                        diagnosticsRefreshCounter++;
+
+                        bool refreshPreview = processedFrameCounter % currentPreviewInterval == 0;
+                        string? diagnostics = diagnosticsRefreshCounter % 15 == 0 ? result.DebugSummary : null;
+
+                        Bitmap? previewFrame = null;
+                        if (refreshPreview)
+                        {
+                            previewFrame = (Bitmap)frameToProcess.Clone();
+                            DrawDetections(previewFrame, result.Detections);
+                        }
+
+                        if (!IsDisposed && (previewFrame is not null || diagnostics is not null))
+                        {
+                            BeginInvoke(new Action(() => UpdatePreviewImage(previewFrame, result.Detections.Count, diagnostics)));
+                        }
+                        else
+                        {
+                            previewFrame?.Dispose();
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    if (!IsDisposed)
+                    {
+                        BeginInvoke(new Action(async () =>
+                        {
+                            await StopDetectionAsync();
+                            MessageBox.Show($"检测过程中发生错误: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        }));
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        private void UpdatePreviewImage(Bitmap? previewFrame, int detectionCount, string? diagnostics)
+        {
+            if (previewFrame is not null)
+            {
+                var previousImage = pictureBoxPreview.Image;
+                pictureBoxPreview.Image = previewFrame;
+                previousImage?.Dispose();
+            }
+
+            lblStatus.Text = $"检测中，目标数: {detectionCount}";
+
+            if (!string.IsNullOrWhiteSpace(diagnostics))
+            {
+                txtDiagnostics.Text = diagnostics;
+            }
+        }
+
+        private static Bitmap? CaptureWindow(IntPtr hwnd, bool centerRoiOnly, int roiSize)
+        {
+            if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var rect))
+            {
+                return null;
+            }
+
+            int width = rect.Right - rect.Left;
+            int height = rect.Bottom - rect.Top;
+            if (width <= 0 || height <= 0)
+            {
+                return null;
+            }
+
+            int captureLeft = rect.Left;
+            int captureTop = rect.Top;
+            int captureWidth = width;
+            int captureHeight = height;
+
+            if (centerRoiOnly)
+            {
+                int squareSize = Math.Max(64, Math.Min(roiSize, Math.Min(width, height)));
+                captureLeft = rect.Left + ((width - squareSize) / 2);
+                captureTop = rect.Top + ((height - squareSize) / 2);
+                captureWidth = squareSize;
+                captureHeight = squareSize;
+            }
+
+            var bitmap = new Bitmap(captureWidth, captureHeight);
+            using var graphics = Graphics.FromImage(bitmap);
+            graphics.CopyFromScreen(captureLeft, captureTop, 0, 0, new Size(captureWidth, captureHeight), CopyPixelOperation.SourceCopy);
+            return bitmap;
+        }
+
+        private void DrawDetections(Bitmap frame, IReadOnlyList<DetectionResult> detections)
+        {
+            using var graphics = Graphics.FromImage(frame);
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using var pen = new Pen(Color.Lime, 2f);
+            using var labelBackground = new SolidBrush(Color.FromArgb(160, 0, 0, 0));
+            using var textBrush = new SolidBrush(Color.Yellow);
+
+            foreach (var detection in detections)
+            {
+                graphics.DrawRectangle(pen, detection.Box.X, detection.Box.Y, detection.Box.Width, detection.Box.Height);
+
+                string text = $"{detection.Label} {detection.Score:P0}";
+                SizeF textSize = graphics.MeasureString(text, Font);
+                float labelY = Math.Max(0, detection.Box.Y - textSize.Height);
+                graphics.FillRectangle(labelBackground, detection.Box.X, labelY, textSize.Width + 6, textSize.Height + 2);
+                graphics.DrawString(text, Font, textBrush, detection.Box.X + 3, labelY + 1);
+            }
+        }
+
         #region WinAPI
         private const int SW_RESTORE = 9;
         private const uint INPUT_MOUSE = 0;
@@ -113,6 +434,10 @@ namespace YOLOForAim
 
         [DllImport("user32.dll")]
         private static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
@@ -148,6 +473,15 @@ namespace YOLOForAim
             public uint dwFlags;
             public uint time;
             public IntPtr dwExtraInfo;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
         }
         #endregion
     }
