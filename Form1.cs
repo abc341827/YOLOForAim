@@ -33,9 +33,14 @@ namespace YOLOForAim
         private int diagnosticsRefreshCounter;
         private int processedFrameCounter;
         private readonly object latestFrameLock = new();
+        private readonly object overlayStateLock = new();
         private Bitmap? latestCapturedFrame;
         private Rectangle latestCapturedBounds;
         private int latestCapturedFrameVersion;
+        private Rectangle latestOverlayCaptureBounds;
+        private DetectionResult[] latestOverlayDetections = Array.Empty<DetectionResult>();
+        private readonly System.Windows.Forms.Timer overlayRefreshTimer;
+        private DetectionOverlayForm? detectionOverlay;
         private bool currentCenterRoiOnly;
         private int currentRoiSize;
         private int currentPreviewInterval;
@@ -64,6 +69,8 @@ namespace YOLOForAim
         public Form1()
         {
             InitializeComponent();
+            overlayRefreshTimer = new System.Windows.Forms.Timer { Interval = 33 };
+            overlayRefreshTimer.Tick += OverlayRefreshTimer_Tick;
             lblStatus.Text = $"模型路径: {modelPath}";
             txtDiagnostics.Text = $"模型路径: {modelPath}";
             chkCenterRoi.Checked = false;
@@ -210,6 +217,7 @@ namespace YOLOForAim
 
             try
             {
+                overlayRefreshTimer.Stop();
                 captureTask?.Wait(500);
                 inferenceTask?.Wait(500);
             }
@@ -225,6 +233,8 @@ namespace YOLOForAim
             }
 
             pictureBoxPreview.Image?.Dispose();
+            detectionOverlay?.Close();
+            detectionOverlay?.Dispose();
             yoloDetector?.Dispose();
             detectionCancellationTokenSource?.Dispose();
             SaveUiSettings();
@@ -359,6 +369,7 @@ namespace YOLOForAim
                     {
                         DetectionRunResult result = yoloDetector?.Detect(frameToProcess) ?? new DetectionRunResult(Array.Empty<DetectionResult>(), "检测器未初始化。");
                         TryMoveMouseToNearestDetection(result.Detections, frameBounds, processedVersion);
+                        UpdateOverlayState(frameBounds, result.Detections);
                         processedFrameCounter++;
                         diagnosticsRefreshCounter++;
 
@@ -417,6 +428,60 @@ namespace YOLOForAim
             {
                 txtDiagnostics.Text = diagnostics;
             }
+        }
+
+        private void OverlayRefreshTimer_Tick(object? sender, EventArgs e)
+        {
+            RefreshDetectionOverlay();
+        }
+
+        private void UpdateOverlayState(Rectangle captureBounds, IReadOnlyList<DetectionResult> detections)
+        {
+            lock (overlayStateLock)
+            {
+                latestOverlayCaptureBounds = captureBounds;
+                latestOverlayDetections = detections.Count == 0 ? Array.Empty<DetectionResult>() : detections.ToArray();
+            }
+        }
+
+        private void ClearOverlayState()
+        {
+            lock (overlayStateLock)
+            {
+                latestOverlayCaptureBounds = Rectangle.Empty;
+                latestOverlayDetections = Array.Empty<DetectionResult>();
+            }
+        }
+
+        private void EnsureDetectionOverlay()
+        {
+            if (detectionOverlay is not null && !detectionOverlay.IsDisposed)
+            {
+                return;
+            }
+
+            detectionOverlay = new DetectionOverlayForm();
+        }
+
+        private void RefreshDetectionOverlay()
+        {
+            if (selectedHwnd == IntPtr.Zero)
+            {
+                detectionOverlay?.HideOverlay();
+                return;
+            }
+
+            EnsureDetectionOverlay();
+
+            Rectangle captureBounds;
+            DetectionResult[] detections;
+            lock (overlayStateLock)
+            {
+                captureBounds = latestOverlayCaptureBounds;
+                detections = latestOverlayDetections;
+            }
+
+            detectionOverlay?.UpdateDetections(selectedHwnd, captureBounds, detections);
         }
 
         private static CapturedFrame? CaptureWindow(IntPtr hwnd, bool centerRoiOnly, int roiSize)
@@ -1171,5 +1236,151 @@ namespace YOLOForAim
             public int Bottom;
         }
         #endregion
+    }
+
+    internal sealed class DetectionOverlayForm : Form
+    {
+        private IntPtr targetHandle = IntPtr.Zero;
+        private Rectangle captureBounds = Rectangle.Empty;
+        private IReadOnlyList<DetectionResult> detections = Array.Empty<DetectionResult>();
+
+        public DetectionOverlayForm()
+        {
+            FormBorderStyle = FormBorderStyle.None;
+            StartPosition = FormStartPosition.Manual;
+            ShowInTaskbar = false;
+            BackColor = Color.Magenta;
+            TransparencyKey = Color.Magenta;
+            TopMost = true;
+            DoubleBuffered = true;
+        }
+
+        protected override bool ShowWithoutActivation => true;
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                const int WS_EX_TRANSPARENT = 0x00000020;
+                const int WS_EX_TOOLWINDOW = 0x00000080;
+                const int WS_EX_NOACTIVATE = 0x08000000;
+
+                var cp = base.CreateParams;
+                cp.ExStyle |= WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+                return cp;
+            }
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            const int WM_NCHITTEST = 0x0084;
+            const int HTTRANSPARENT = -1;
+
+            if (m.Msg == WM_NCHITTEST)
+            {
+                m.Result = (IntPtr)HTTRANSPARENT;
+                return;
+            }
+
+            base.WndProc(ref m);
+        }
+
+        public void UpdateDetections(IntPtr hwnd, Rectangle newCaptureBounds, IReadOnlyList<DetectionResult> newDetections)
+        {
+            if (hwnd == IntPtr.Zero ||
+                !GetWindowRect(hwnd, out var rect) ||
+                !IsWindowVisible(hwnd) ||
+                IsIconic(hwnd) ||
+                GetForegroundWindow() != hwnd)
+            {
+                HideOverlay();
+                return;
+            }
+
+            targetHandle = hwnd;
+            captureBounds = newCaptureBounds;
+            detections = newDetections;
+
+            Rectangle overlayBounds = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+            if (Bounds != overlayBounds)
+            {
+                Bounds = overlayBounds;
+            }
+
+            if (!Visible)
+            {
+                Show();
+            }
+
+            Invalidate();
+        }
+
+        public void HideOverlay()
+        {
+            targetHandle = IntPtr.Zero;
+            captureBounds = Rectangle.Empty;
+            detections = Array.Empty<DetectionResult>();
+
+            if (Visible)
+            {
+                Hide();
+            }
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            e.Graphics.Clear(BackColor);
+
+            if (targetHandle == IntPtr.Zero || captureBounds.IsEmpty || detections.Count == 0 || !GetWindowRect(targetHandle, out var rect))
+            {
+                return;
+            }
+
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using var pen = new Pen(Color.Lime, 2f);
+            using var labelBackground = new SolidBrush(Color.FromArgb(160, 0, 0, 0));
+            using var textBrush = new SolidBrush(Color.Yellow);
+
+            float offsetX = captureBounds.Left - rect.Left;
+            float offsetY = captureBounds.Top - rect.Top;
+
+            foreach (DetectionResult detection in detections)
+            {
+                float boxX = offsetX + detection.Box.X;
+                float boxY = offsetY + detection.Box.Y;
+                e.Graphics.DrawRectangle(pen, boxX, boxY, detection.Box.Width, detection.Box.Height);
+
+                string text = $"{detection.Label} {detection.Score:P0}";
+                SizeF textSize = e.Graphics.MeasureString(text, Font);
+                float labelY = Math.Max(0, boxY - textSize.Height);
+                e.Graphics.FillRectangle(labelBackground, boxX, labelY, textSize.Width + 6, textSize.Height + 2);
+                e.Graphics.DrawString(text, Font, textBrush, boxX + 3, labelY + 1);
+            }
+        }
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool IsIconic(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
     }
 }
