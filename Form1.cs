@@ -7,7 +7,13 @@ namespace YOLOForAim
 {
     public partial class Form1 : Form
     {
+        private const int HotKeyIdSendMouseUp = 1;
+        private const int WM_HOTKEY = 0x0312;
+        private const uint MOD_NONE = 0x0000;
+        private const uint VK_Z = 0x5A;
+
         private IntPtr selectedHwnd = IntPtr.Zero;
+        private bool hotKeyRegistered;
 
         public Form1()
         {
@@ -25,6 +31,44 @@ namespace YOLOForAim
         }
 
         private void btnSendMouseUp_Click(object? sender, EventArgs e)
+        {
+            SendMouseMoveUp();
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+
+            hotKeyRegistered = RegisterHotKey(Handle, HotKeyIdSendMouseUp, MOD_NONE, VK_Z);
+            if (!hotKeyRegistered)
+            {
+                MessageBox.Show("全局快捷键 Z 注册失败。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        protected override void OnHandleDestroyed(EventArgs e)
+        {
+            if (hotKeyRegistered)
+            {
+                UnregisterHotKey(Handle, HotKeyIdSendMouseUp);
+                hotKeyRegistered = false;
+            }
+
+            base.OnHandleDestroyed(e);
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_HOTKEY && m.WParam == (IntPtr)HotKeyIdSendMouseUp)
+            {
+                SendMouseMoveUp();
+                return;
+            }
+
+            base.WndProc(ref m);
+        }
+
+        private void SendMouseMoveUp()
         {
             if (selectedHwnd == IntPtr.Zero)
             {
@@ -72,6 +116,14 @@ namespace YOLOForAim
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct INPUT

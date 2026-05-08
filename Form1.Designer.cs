@@ -50,7 +50,7 @@
             this.btnSendMouseUp.Name = "btnSendMouseUp";
             this.btnSendMouseUp.Size = new System.Drawing.Size(180, 30);
             this.btnSendMouseUp.TabIndex = 1;
-            this.btnSendMouseUp.Text = "发送鼠标上移 100";
+            this.btnSendMouseUp.Text = "发送鼠标上移 100 (Z)";
             this.btnSendMouseUp.UseVisualStyleBackColor = true;
             this.btnSendMouseUp.Click += new System.EventHandler(this.btnSendMouseUp_Click);
             // 
