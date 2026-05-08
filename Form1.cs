@@ -103,8 +103,10 @@ namespace YOLOForAim
     internal class OverlayForm : Form
     {
         private readonly System.Windows.Forms.Timer selectionTimer;
+        private readonly LowLevelMouseProc mouseProc;
         private IntPtr hoveredHandle = IntPtr.Zero;
-        private bool leftButtonWasDown;
+        private IntPtr mouseHook = IntPtr.Zero;
+        private bool selectionCompleted;
         public IntPtr SelectedHandle { get; private set; } = IntPtr.Zero;
 
         public OverlayForm()
@@ -119,6 +121,7 @@ namespace YOLOForAim
             DoubleBuffered = true;
             Cursor = Cursors.Cross;
             KeyPreview = true;
+            mouseProc = MouseHookCallback;
 
             selectionTimer = new System.Windows.Forms.Timer { Interval = 16 };
             selectionTimer.Tick += SelectionTimer_Tick;
@@ -130,8 +133,8 @@ namespace YOLOForAim
         private void OverlayForm_Shown(object? sender, EventArgs e)
         {
             Activate();
-            leftButtonWasDown = IsLeftButtonDown();
             UpdateHoveredWindow();
+            InstallMouseHook();
             selectionTimer.Start();
         }
 
@@ -139,28 +142,61 @@ namespace YOLOForAim
         {
             if (e.KeyCode == Keys.Escape)
             {
-                selectionTimer.Stop();
-                DialogResult = DialogResult.Cancel;
-                Close();
+                CancelSelection();
+            }
+            else if (e.KeyCode == Keys.Enter)
+            {
+                ConfirmSelectionAtCursor();
             }
         }
 
         private void SelectionTimer_Tick(object? sender, EventArgs e)
         {
             UpdateHoveredWindow();
+        }
 
-            bool isLeftButtonDown = IsLeftButtonDown();
-            if (isLeftButtonDown)
+        protected override CreateParams CreateParams
+        {
+            get
             {
-                leftButtonWasDown = true;
+                const int WS_EX_TRANSPARENT = 0x00000020;
+                const int WS_EX_TOOLWINDOW = 0x00000080;
+
+                var cp = base.CreateParams;
+                cp.ExStyle |= WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW;
+                return cp;
+            }
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            const int WM_NCHITTEST = 0x0084;
+            const int HTTRANSPARENT = -1;
+
+            if (m.Msg == WM_NCHITTEST)
+            {
+                m.Result = (IntPtr)HTTRANSPARENT;
                 return;
             }
 
-            if (!leftButtonWasDown)
+            base.WndProc(ref m);
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            selectionTimer.Stop();
+            UninstallMouseHook();
+            base.OnFormClosed(e);
+        }
+
+        private void ConfirmSelectionAtCursor()
+        {
+            if (selectionCompleted)
             {
                 return;
             }
 
+            selectionCompleted = true;
             selectionTimer.Stop();
             hoveredHandle = FindWindowFromPoint(Cursor.Position, Handle);
             if (hoveredHandle != IntPtr.Zero)
@@ -174,6 +210,50 @@ namespace YOLOForAim
             }
 
             Close();
+        }
+
+        private void CancelSelection()
+        {
+            if (selectionCompleted)
+            {
+                return;
+            }
+
+            selectionCompleted = true;
+            selectionTimer.Stop();
+            DialogResult = DialogResult.Cancel;
+            Close();
+        }
+
+        private void InstallMouseHook()
+        {
+            if (mouseHook != IntPtr.Zero)
+            {
+                return;
+            }
+
+            mouseHook = SetWindowsHookEx(WH_MOUSE_LL, mouseProc, IntPtr.Zero, 0);
+        }
+
+        private void UninstallMouseHook()
+        {
+            if (mouseHook == IntPtr.Zero)
+            {
+                return;
+            }
+
+            UnhookWindowsHookEx(mouseHook);
+            mouseHook = IntPtr.Zero;
+        }
+
+        private IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode >= 0 && !selectionCompleted && wParam == (IntPtr)WM_LBUTTONUP)
+            {
+                BeginInvoke(ConfirmSelectionAtCursor);
+            }
+
+            return CallNextHookEx(mouseHook, nCode, wParam, lParam);
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -216,11 +296,6 @@ namespace YOLOForAim
             Invalidate();
         }
 
-        private static bool IsLeftButtonDown()
-        {
-            return (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
-        }
-
         private static IntPtr FindWindowFromPoint(Point point, IntPtr overlayHandle)
         {
             var hwnd = WindowFromPoint(point);
@@ -240,7 +315,8 @@ namespace YOLOForAim
 
         #region WinAPI
         private const uint GA_ROOT = 2;
-        private const int VK_LBUTTON = 0x01;
+        private const int WH_MOUSE_LL = 14;
+        private const int WM_LBUTTONUP = 0x0202;
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -256,8 +332,17 @@ namespace YOLOForAim
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool IsWindowVisible(IntPtr hWnd);
 
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
         [DllImport("user32.dll")]
-        private static extern short GetAsyncKeyState(int vKey);
+        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+        private delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct RECT

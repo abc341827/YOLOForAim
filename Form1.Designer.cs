@@ -40,7 +40,7 @@
             this.btnSelectWindow.Name = "btnSelectWindow";
             this.btnSelectWindow.Size = new System.Drawing.Size(160, 30);
             this.btnSelectWindow.TabIndex = 0;
-            this.btnSelectWindow.Text = "选择窗口 (弹起确认)";
+            this.btnSelectWindow.Text = "选择窗口 (点击/回车确认)";
             this.btnSelectWindow.UseVisualStyleBackColor = true;
             this.btnSelectWindow.Click += new System.EventHandler(this.btnSelectWindow_Click);
             // 
