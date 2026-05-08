@@ -61,6 +61,10 @@
             this.numAimTrackingBlend = new System.Windows.Forms.NumericUpDown();
             this.lblAimCloseRangeSlowdown = new System.Windows.Forms.Label();
             this.numAimCloseRangeSlowdown = new System.Windows.Forms.NumericUpDown();
+            this.lblAimMoveCooldown = new System.Windows.Forms.Label();
+            this.numAimMoveCooldown = new System.Windows.Forms.NumericUpDown();
+            this.lblAimFeedbackFrameDelay = new System.Windows.Forms.Label();
+            this.numAimFeedbackFrameDelay = new System.Windows.Forms.NumericUpDown();
             this.lblParameterHint = new System.Windows.Forms.Label();
             this.lblHandle = new System.Windows.Forms.Label();
             this.lblStatus = new System.Windows.Forms.Label();
@@ -79,6 +83,8 @@
             ((System.ComponentModel.ISupportInitialize)(this.numAimFireGracePeriod)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimTrackingBlend)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimCloseRangeSlowdown)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimMoveCooldown)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimFeedbackFrameDelay)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBoxPreview)).BeginInit();
             this.SuspendLayout();
             // 
@@ -529,15 +535,71 @@
             0});
             this.toolTipDescriptions.SetToolTip(this.numAimCloseRangeSlowdown, "建议 50~90。值越大，准心贴近目标时越柔和。");
             // 
+            // lblAimMoveCooldown
+            // 
+            this.lblAimMoveCooldown.AutoSize = true;
+            this.lblAimMoveCooldown.Location = new System.Drawing.Point(220, 168);
+            this.lblAimMoveCooldown.Name = "lblAimMoveCooldown";
+            this.lblAimMoveCooldown.Size = new System.Drawing.Size(103, 15);
+            this.lblAimMoveCooldown.TabIndex = 29;
+            this.lblAimMoveCooldown.Text = "移动冷却时间(ms)";
+            this.toolTipDescriptions.SetToolTip(this.lblAimMoveCooldown, "每次发送鼠标移动后，最少等待多久才允许再次修正，以减少同一误差的重复补偿。");
+            // 
+            // numAimMoveCooldown
+            // 
+            this.numAimMoveCooldown.Location = new System.Drawing.Point(329, 166);
+            this.numAimMoveCooldown.Maximum = new decimal(new int[] {
+            50,
+            0,
+            0,
+            0});
+            this.numAimMoveCooldown.Name = "numAimMoveCooldown";
+            this.numAimMoveCooldown.Size = new System.Drawing.Size(56, 23);
+            this.numAimMoveCooldown.TabIndex = 30;
+            this.numAimMoveCooldown.Value = new decimal(new int[] {
+            10,
+            0,
+            0,
+            0});
+            this.toolTipDescriptions.SetToolTip(this.numAimMoveCooldown, "建议 8~12。太小容易重复补偿，太大则会降低跟枪速度。");
+            // 
+            // lblAimFeedbackFrameDelay
+            // 
+            this.lblAimFeedbackFrameDelay.AutoSize = true;
+            this.lblAimFeedbackFrameDelay.Location = new System.Drawing.Point(401, 168);
+            this.lblAimFeedbackFrameDelay.Name = "lblAimFeedbackFrameDelay";
+            this.lblAimFeedbackFrameDelay.Size = new System.Drawing.Size(103, 15);
+            this.lblAimFeedbackFrameDelay.TabIndex = 31;
+            this.lblAimFeedbackFrameDelay.Text = "反馈等待帧";
+            this.toolTipDescriptions.SetToolTip(this.lblAimFeedbackFrameDelay, "发送一次移动后，至少等待多少张新截图再继续修正，可减少旧画面重复拉动。");
+            // 
+            // numAimFeedbackFrameDelay
+            // 
+            this.numAimFeedbackFrameDelay.Location = new System.Drawing.Point(510, 166);
+            this.numAimFeedbackFrameDelay.Maximum = new decimal(new int[] {
+            10,
+            0,
+            0,
+            0});
+            this.numAimFeedbackFrameDelay.Name = "numAimFeedbackFrameDelay";
+            this.numAimFeedbackFrameDelay.Size = new System.Drawing.Size(56, 23);
+            this.numAimFeedbackFrameDelay.TabIndex = 32;
+            this.numAimFeedbackFrameDelay.Value = new decimal(new int[] {
+            2,
+            0,
+            0,
+            0});
+            this.toolTipDescriptions.SetToolTip(this.numAimFeedbackFrameDelay, "建议 1~3。截图频率高于游戏刷新率时，这个参数通常很有用。");
+            // 
             // lblParameterHint
             // 
             this.lblParameterHint.AutoSize = true;
             this.lblParameterHint.ForeColor = System.Drawing.SystemColors.GrayText;
-            this.lblParameterHint.Location = new System.Drawing.Point(220, 168);
+            this.lblParameterHint.Location = new System.Drawing.Point(12, 196);
             this.lblParameterHint.Name = "lblParameterHint";
-            this.lblParameterHint.Size = new System.Drawing.Size(283, 15);
-            this.lblParameterHint.TabIndex = 29;
-            this.lblParameterHint.Text = "参数说明：将鼠标停留在按钮或输入框上可查看用途。";
+            this.lblParameterHint.Size = new System.Drawing.Size(439, 15);
+            this.lblParameterHint.TabIndex = 33;
+            this.lblParameterHint.Text = "参数说明：将鼠标停留在按钮或输入框上可查看用途。新增反馈抑制参数可减少乱飘。";
             // 
             // lblHandle
             // 
@@ -551,7 +613,7 @@
             // lblStatus
             // 
             this.lblStatus.AutoSize = true;
-            this.lblStatus.Location = new System.Drawing.Point(12, 196);
+            this.lblStatus.Location = new System.Drawing.Point(12, 218);
             this.lblStatus.Name = "lblStatus";
             this.lblStatus.Size = new System.Drawing.Size(43, 15);
             this.lblStatus.TabIndex = 22;
@@ -560,7 +622,7 @@
             // pictureBoxPreview
             // 
             this.pictureBoxPreview.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.pictureBoxPreview.Location = new System.Drawing.Point(12, 223);
+            this.pictureBoxPreview.Location = new System.Drawing.Point(12, 245);
             this.pictureBoxPreview.Name = "pictureBoxPreview";
             this.pictureBoxPreview.Size = new System.Drawing.Size(776, 330);
             this.pictureBoxPreview.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
@@ -569,7 +631,7 @@
             // 
             // txtDiagnostics
             // 
-            this.txtDiagnostics.Location = new System.Drawing.Point(12, 559);
+            this.txtDiagnostics.Location = new System.Drawing.Point(12, 581);
             this.txtDiagnostics.Multiline = true;
             this.txtDiagnostics.Name = "txtDiagnostics";
             this.txtDiagnostics.ReadOnly = true;
@@ -581,10 +643,14 @@
             // Form1
             // 
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(800, 726);
+            ClientSize = new Size(800, 748);
             Controls.Add(this.txtDiagnostics);
             Controls.Add(this.pictureBoxPreview);
             Controls.Add(this.lblParameterHint);
+            Controls.Add(this.numAimFeedbackFrameDelay);
+            Controls.Add(this.lblAimFeedbackFrameDelay);
+            Controls.Add(this.numAimMoveCooldown);
+            Controls.Add(this.lblAimMoveCooldown);
             Controls.Add(this.numAimCloseRangeSlowdown);
             Controls.Add(this.lblAimCloseRangeSlowdown);
             Controls.Add(this.numAimTrackingBlend);
@@ -633,6 +699,8 @@
             ((System.ComponentModel.ISupportInitialize)(this.numAimFireGracePeriod)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimTrackingBlend)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimCloseRangeSlowdown)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimMoveCooldown)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimFeedbackFrameDelay)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBoxPreview)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
@@ -669,6 +737,10 @@
         private System.Windows.Forms.NumericUpDown numAimTrackingBlend;
         private System.Windows.Forms.Label lblAimCloseRangeSlowdown;
         private System.Windows.Forms.NumericUpDown numAimCloseRangeSlowdown;
+        private System.Windows.Forms.Label lblAimMoveCooldown;
+        private System.Windows.Forms.NumericUpDown numAimMoveCooldown;
+        private System.Windows.Forms.Label lblAimFeedbackFrameDelay;
+        private System.Windows.Forms.NumericUpDown numAimFeedbackFrameDelay;
         private System.Windows.Forms.Label lblParameterHint;
         private System.Windows.Forms.Label lblHandle;
         private System.Windows.Forms.Label lblStatus;
