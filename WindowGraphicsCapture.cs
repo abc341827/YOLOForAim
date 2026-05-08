@@ -1,5 +1,6 @@
 ﻿using System.Drawing;
 using System.Drawing;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using Vortice.Direct3D;
 using Vortice.Direct3D11;
@@ -185,7 +186,7 @@ internal sealed class WindowGraphicsCapture : IDisposable
             IntPtr itemPointer = interop.CreateForWindow(hwnd, iid);
             try
             {
-                return (GraphicsCaptureItem)Marshal.GetObjectForIUnknown(itemPointer);
+                return FromAbi<GraphicsCaptureItem>(itemPointer);
             }
             finally
             {
@@ -204,7 +205,7 @@ internal sealed class WindowGraphicsCapture : IDisposable
         Marshal.ThrowExceptionForHR(hr);
         try
         {
-            return (IDirect3DDevice)Marshal.GetObjectForIUnknown(graphicsDevicePointer);
+            return FromAbi<IDirect3DDevice>(graphicsDevicePointer);
         }
         finally
         {
@@ -251,6 +252,22 @@ internal sealed class WindowGraphicsCapture : IDisposable
         {
             WindowsDeleteString(className);
         }
+    }
+
+    private static T FromAbi<T>(IntPtr abiPointer) where T : class
+    {
+        MethodInfo? fromAbiMethod = typeof(T).GetMethod(
+            "FromAbi",
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static,
+            binder: null,
+            types: new[] { typeof(IntPtr) },
+            modifiers: null);
+        if (fromAbiMethod is not null)
+        {
+            return (T)fromAbiMethod.Invoke(null, new object[] { abiPointer })!;
+        }
+
+        return (T)Marshal.GetObjectForIUnknown(abiPointer);
     }
 
     [DllImport("d3d11.dll")]
