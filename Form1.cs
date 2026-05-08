@@ -20,6 +20,10 @@ namespace YOLOForAim
         private const int DefaultAimCloseRangeSlowdownPixels = 64;
         private const int DefaultAimMoveCooldownMs = 10;
         private const int DefaultAimFeedbackFrameDelay = 2;
+        private const float AimHeightHighConfidenceThreshold = 0.65f;
+        private const float AimHeightHighConfidenceBlend = 0.45f;
+        private const float AimHeightLowConfidenceBlend = 0.12f;
+        private const float AimHeightLowConfidenceMinRatio = 0.92f;
         private const float AimPendingCompensationDecay = 0.45f;
         private const float AimPendingCompensationFactor = 0.75f;
         private static readonly string UiSettingsFilePath = Path.Combine(AppContext.BaseDirectory, "ui-settings.json");
@@ -68,11 +72,8 @@ namespace YOLOForAim
         private long lastAimMoveTick;
         private int lastAimMoveFrameVersion = -1;
         private int lastPendingCompensationFrameVersion = -1;
+        private float stabilizedAimTargetHeight;
         private PointF pendingAimCompensation;
-        private PointF trackedTargetVelocity;
-        private float trackedTargetHeight;
-        private float trackedTargetReferenceHeight;
-        private int lastTrackedTargetFrameVersion = -1;
 
         public Form1()
         {
@@ -589,59 +590,55 @@ namespace YOLOForAim
                 return;
             }
 
-            PointF targetCenterForMove;
-            float aimHeightForMove;
             if (detections.Count == 0)
             {
                 missedTargetFrames++;
-                if (smoothedTargetScreenPoint is null || missedTargetFrames >= currentAimMaxMissedFrames)
+                if (missedTargetFrames >= currentAimMaxMissedFrames)
                 {
                     ResetAimTrackingState();
-                    return;
                 }
+                return;
+            }
 
-                PredictTrackedTarget(processedFrameVersion);
-                if (smoothedTargetScreenPoint is null)
+            Point cursorPosition = Cursor.Position;
+            PointF? previousLockedTargetScreenPoint = lockedTargetScreenPoint;
+            TargetCandidate? nearestDetection = SelectTargetCandidate(detections, captureBounds, cursorPosition);
+
+            if (nearestDetection is null)
+            {
+                return;
+            }
+
+            float distanceFromLockedTarget = MathF.Sqrt((float)nearestDetection.DistanceSquared);
+            if (lockedTargetScreenPoint is not null && distanceFromLockedTarget > currentAimLockSwitchDistancePixels)
+            {
+                missedTargetFrames++;
+                if (missedTargetFrames < currentAimMaxMissedFrames)
                 {
                     return;
                 }
+            }
 
-                targetCenterForMove = smoothedTargetScreenPoint.Value;
-                aimHeightForMove = GetTrackedAimHeight();
+            bool resetHeightTracking = previousLockedTargetScreenPoint is null ||
+                smoothedTargetScreenPoint is null ||
+                GetDistanceSquared(previousLockedTargetScreenPoint.Value, nearestDetection.TargetPoint) >
+                (currentAimLockSwitchDistancePixels * currentAimLockSwitchDistancePixels);
+            float effectiveAimHeight = GetEffectiveAimHeight(nearestDetection.Detection, resetHeightTracking);
+            PointF stabilizedTargetPoint = GetAimPoint(captureBounds, nearestDetection.Detection, effectiveAimHeight);
+
+            lockedTargetScreenPoint = stabilizedTargetPoint;
+            missedTargetFrames = 0;
+
+            if (resetHeightTracking)
+            {
+                smoothedTargetScreenPoint = stabilizedTargetPoint;
             }
             else
             {
-                Point currentCursorPosition = Cursor.Position;
-                PointF? previousLockedTargetScreenPoint = lockedTargetScreenPoint;
-                TargetCandidate? nearestDetection = SelectTargetCandidate(detections, captureBounds, currentCursorPosition);
-
-                if (nearestDetection is null)
-                {
-                    return;
-                }
-
-                float distanceFromLockedTarget = MathF.Sqrt((float)nearestDetection.DistanceSquared);
-                if (lockedTargetScreenPoint is not null && distanceFromLockedTarget > currentAimLockSwitchDistancePixels)
-                {
-                    missedTargetFrames++;
-                    if (missedTargetFrames < currentAimMaxMissedFrames)
-                    {
-                        return;
-                    }
-                }
-
-                UpdateTrackedTarget(nearestDetection.CenterPoint, nearestDetection.Detection.Box.Height, processedFrameVersion, previousLockedTargetScreenPoint);
-                if (smoothedTargetScreenPoint is null)
-                {
-                    return;
-                }
-
-                targetCenterForMove = smoothedTargetScreenPoint.Value;
-                aimHeightForMove = GetTrackedAimHeight(nearestDetection.Detection.Box.Height);
+                smoothedTargetScreenPoint = LerpPoint(smoothedTargetScreenPoint.Value, stabilizedTargetPoint, currentAimTargetTrackingBlend);
             }
 
-            PointF targetPointForMove = GetAimPoint(targetCenterForMove, aimHeightForMove);
-            Point cursorPosition = Cursor.Position;
+            PointF targetPointForMove = smoothedTargetScreenPoint.Value;
             float rawMoveX = (targetPointForMove.X - cursorPosition.X) - pendingAimCompensation.X;
             float rawMoveY = (targetPointForMove.Y - cursorPosition.Y) - pendingAimCompensation.Y;
             float distanceToAimPoint = MathF.Sqrt((rawMoveX * rawMoveX) + (rawMoveY * rawMoveY));
@@ -701,78 +698,28 @@ namespace YOLOForAim
             lockedTargetScreenPoint = null;
             smoothedTargetScreenPoint = null;
             missedTargetFrames = 0;
-            trackedTargetVelocity = PointF.Empty;
-            trackedTargetHeight = 0;
-            trackedTargetReferenceHeight = 0;
-            lastTrackedTargetFrameVersion = -1;
+            stabilizedAimTargetHeight = 0f;
         }
 
-        private void UpdateTrackedTarget(PointF observedCenter, float observedHeight, int processedFrameVersion, PointF? previousLockedTargetScreenPoint)
+        private float GetEffectiveAimHeight(DetectionResult detection, bool resetHeightTracking)
         {
-            lockedTargetScreenPoint = observedCenter;
-            missedTargetFrames = 0;
-
-            if (previousLockedTargetScreenPoint is null ||
-                smoothedTargetScreenPoint is null ||
-                GetDistanceSquared(previousLockedTargetScreenPoint.Value, observedCenter) >
-                (currentAimLockSwitchDistancePixels * currentAimLockSwitchDistancePixels))
+            float detectedHeight = Math.Max(1f, detection.Box.Height);
+            if (resetHeightTracking || stabilizedAimTargetHeight <= 0f)
             {
-                smoothedTargetScreenPoint = observedCenter;
-                trackedTargetVelocity = PointF.Empty;
-                trackedTargetHeight = Math.Max(1f, observedHeight);
-                trackedTargetReferenceHeight = trackedTargetHeight;
-                lastTrackedTargetFrameVersion = processedFrameVersion;
-                return;
+                stabilizedAimTargetHeight = detectedHeight;
+                return stabilizedAimTargetHeight;
             }
 
-            int frameDelta = lastTrackedTargetFrameVersion < 0
-                ? 1
-                : Math.Max(1, processedFrameVersion - lastTrackedTargetFrameVersion);
-            PointF previousSmoothedTargetScreenPoint = smoothedTargetScreenPoint.Value;
-            PointF observedVelocity = new(
-                (observedCenter.X - previousSmoothedTargetScreenPoint.X) / frameDelta,
-                (observedCenter.Y - previousSmoothedTargetScreenPoint.Y) / frameDelta);
-
-            trackedTargetVelocity = LerpPoint(trackedTargetVelocity, observedVelocity, 0.45f);
-            smoothedTargetScreenPoint = LerpPoint(previousSmoothedTargetScreenPoint, observedCenter, currentAimTargetTrackingBlend);
-
-            float clampedObservedHeight = trackedTargetHeight <= 0f
-                ? observedHeight
-                : Math.Max(observedHeight, trackedTargetHeight * 0.88f);
-            trackedTargetHeight = trackedTargetHeight <= 0f
-                ? Math.Max(1f, clampedObservedHeight)
-                : LerpFloat(trackedTargetHeight, clampedObservedHeight, 0.35f);
-            trackedTargetReferenceHeight = Math.Max(trackedTargetReferenceHeight * 0.98f, trackedTargetHeight);
-            lastTrackedTargetFrameVersion = processedFrameVersion;
-        }
-
-        private void PredictTrackedTarget(int processedFrameVersion)
-        {
-            if (smoothedTargetScreenPoint is null)
+            bool highConfidence = detection.Score >= AimHeightHighConfidenceThreshold;
+            float blend = highConfidence ? AimHeightHighConfidenceBlend : AimHeightLowConfidenceBlend;
+            float candidateHeight = detectedHeight;
+            if (!highConfidence && detectedHeight < stabilizedAimTargetHeight)
             {
-                return;
+                candidateHeight = Math.Max(detectedHeight, stabilizedAimTargetHeight * AimHeightLowConfidenceMinRatio);
             }
 
-            int frameDelta = lastTrackedTargetFrameVersion < 0
-                ? 1
-                : Math.Max(1, processedFrameVersion - lastTrackedTargetFrameVersion);
-            smoothedTargetScreenPoint = new PointF(
-                smoothedTargetScreenPoint.Value.X + (trackedTargetVelocity.X * frameDelta),
-                smoothedTargetScreenPoint.Value.Y + (trackedTargetVelocity.Y * frameDelta));
-            lockedTargetScreenPoint = smoothedTargetScreenPoint;
-            trackedTargetVelocity = new PointF(trackedTargetVelocity.X * 0.92f, trackedTargetVelocity.Y * 0.92f);
-            lastTrackedTargetFrameVersion = processedFrameVersion;
-        }
-
-        private float GetTrackedAimHeight(float fallbackHeight = 0f)
-        {
-            float height = Math.Max(fallbackHeight, trackedTargetHeight);
-            if (trackedTargetReferenceHeight > 0f)
-            {
-                height = Math.Max(height, trackedTargetReferenceHeight * 0.85f);
-            }
-
-            return Math.Max(1f, height);
+            stabilizedAimTargetHeight = LerpFloat(stabilizedAimTargetHeight, candidateHeight, blend);
+            return Math.Max(1f, stabilizedAimTargetHeight);
         }
 
         private void UpdatePendingAimCompensation(int processedFrameVersion)
@@ -842,12 +789,11 @@ namespace YOLOForAim
                     continue;
                 }
 
-                PointF centerPoint = GetDetectionCenter(captureBounds, detection);
-                PointF aimPoint = GetAimPoint(centerPoint, detection.Box.Height);
-                double distanceSquared = GetDistanceSquared(referencePoint, centerPoint);
+                PointF targetPoint = GetAimPoint(captureBounds, detection);
+                double distanceSquared = GetDistanceSquared(referencePoint, targetPoint);
                 if (bestCandidate is null || distanceSquared < bestCandidate.DistanceSquared)
                 {
-                    bestCandidate = new TargetCandidate(detection, centerPoint, aimPoint, distanceSquared);
+                    bestCandidate = new TargetCandidate(detection, targetPoint, distanceSquared);
                 }
             }
 
@@ -860,12 +806,11 @@ namespace YOLOForAim
 
             foreach (DetectionResult detection in detections)
             {
-                PointF centerPoint = GetDetectionCenter(captureBounds, detection);
-                PointF aimPoint = GetAimPoint(centerPoint, detection.Box.Height);
-                double distanceSquared = GetDistanceSquared(referencePoint, centerPoint);
+                PointF targetPoint = GetAimPoint(captureBounds, detection);
+                double distanceSquared = GetDistanceSquared(referencePoint, targetPoint);
                 if (bestCandidate is null || distanceSquared < bestCandidate.DistanceSquared)
                 {
-                    bestCandidate = new TargetCandidate(detection, centerPoint, aimPoint, distanceSquared);
+                    bestCandidate = new TargetCandidate(detection, targetPoint, distanceSquared);
                 }
             }
 
@@ -881,18 +826,16 @@ namespace YOLOForAim
                 detection.Box.Height + (padding * 2f));
         }
 
-        private static PointF GetDetectionCenter(Rectangle captureBounds, DetectionResult detection)
+        private PointF GetAimPoint(Rectangle captureBounds, DetectionResult detection)
+        {
+            return GetAimPoint(captureBounds, detection, detection.Box.Height);
+        }
+
+        private PointF GetAimPoint(Rectangle captureBounds, DetectionResult detection, float effectiveHeight)
         {
             return new PointF(
                 captureBounds.Left + detection.Box.X + (detection.Box.Width / 2f),
-                captureBounds.Top + detection.Box.Y + (detection.Box.Height / 2f));
-        }
-
-        private PointF GetAimPoint(PointF targetCenterPoint, float targetHeight)
-        {
-            return new PointF(
-                targetCenterPoint.X,
-                targetCenterPoint.Y + ((currentAimPointHeightRatio - 0.5f) * targetHeight));
+                captureBounds.Top + detection.Box.Y + (effectiveHeight * currentAimPointHeightRatio));
         }
 
         private static bool IsLeftMouseButtonDown()
@@ -1137,7 +1080,7 @@ namespace YOLOForAim
             int AimMoveCooldownMs = DefaultAimMoveCooldownMs,
             int AimFeedbackFrameDelay = DefaultAimFeedbackFrameDelay);
 
-        private sealed record TargetCandidate(DetectionResult Detection, PointF CenterPoint, PointF AimPoint, double DistanceSquared);
+        private sealed record TargetCandidate(DetectionResult Detection, PointF TargetPoint, double DistanceSquared);
         #endregion
     }
 
