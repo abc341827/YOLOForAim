@@ -1,6 +1,5 @@
 ﻿using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
+using System.Drawing;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 
@@ -43,28 +42,26 @@ internal sealed class YoloDetector : IDisposable
         ModelSummary = BuildModelSummary();
     }
 
-    public DetectionRunResult Detect(Bitmap sourceImage)
+    public DetectionRunResult Detect(byte[] sourcePixels, int sourceWidth, int sourceHeight, int sourceStride, Rectangle sourceRegion)
     {
-        var preprocess = Preprocess(sourceImage);
-        try
-        {
-            var inputs = CreateInputs(preprocess.TensorData);
+        Rectangle normalizedSourceRegion = NormalizeSourceRegion(sourceRegion, sourceWidth, sourceHeight);
+        PreprocessResult preprocess = Preprocess(sourcePixels, sourceWidth, sourceHeight, sourceStride, normalizedSourceRegion);
+        var inputs = CreateInputs(preprocess.TensorData);
 
-            using IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results = session.Run(inputs);
-            var outputs = new List<OutputSnapshot>();
-            foreach (var result in results)
-            {
-                outputs.Add(CreateOutputSnapshot(result));
-            }
-
-            IReadOnlyList<DetectionResult> detections = ParseOutputs(outputs, sourceImage.Size, preprocess.Scale, preprocess.PadX, preprocess.PadY);
-            string debugSummary = BuildRuntimeSummary(outputs, detections.Count);
-            return new DetectionRunResult(detections, debugSummary);
-        }
-        finally
+        using IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results = session.Run(inputs);
+        var outputs = new List<OutputSnapshot>();
+        foreach (var result in results)
         {
-            preprocess.Dispose();
+            outputs.Add(CreateOutputSnapshot(result));
         }
+
+        IReadOnlyList<DetectionResult> detections = ParseOutputs(outputs, normalizedSourceRegion.Size, preprocess.Scale, preprocess.PadX, preprocess.PadY);
+        if (!normalizedSourceRegion.Location.IsEmpty)
+        {
+            detections = OffsetDetections(detections, normalizedSourceRegion.Location);
+        }
+
+        return new DetectionRunResult(detections);
     }
 
     public void Dispose()
@@ -109,57 +106,58 @@ internal sealed class YoloDetector : IDisposable
         };
     }
 
-    private PreprocessResult Preprocess(Bitmap image)
+    private Rectangle NormalizeSourceRegion(Rectangle sourceRegion, int sourceWidth, int sourceHeight)
     {
-        float scale = Math.Min((float)inputWidth / image.Width, (float)inputHeight / image.Height);
-        int resizedWidth = Math.Max(1, (int)Math.Round(image.Width * scale));
-        int resizedHeight = Math.Max(1, (int)Math.Round(image.Height * scale));
-        float padX = (inputWidth - resizedWidth) / 2f;
-        float padY = (inputHeight - resizedHeight) / 2f;
-
-        var canvas = new Bitmap(inputWidth, inputHeight, PixelFormat.Format24bppRgb);
-        using (var g = Graphics.FromImage(canvas))
+        Rectangle fullBounds = new(0, 0, sourceWidth, sourceHeight);
+        Rectangle normalizedSourceRegion = sourceRegion.IsEmpty ? fullBounds : Rectangle.Intersect(fullBounds, sourceRegion);
+        if (normalizedSourceRegion.Width <= 0 || normalizedSourceRegion.Height <= 0)
         {
-            g.Clear(Color.Black);
-            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-            g.DrawImage(image, padX, padY, resizedWidth, resizedHeight);
+            return fullBounds;
         }
 
-        var rect = new Rectangle(0, 0, inputWidth, inputHeight);
-        BitmapData bitmapData = canvas.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
-        try
+        return normalizedSourceRegion;
+    }
+
+    private PreprocessResult Preprocess(byte[] sourcePixels, int sourceWidth, int sourceHeight, int sourceStride, Rectangle sourceRegion)
+    {
+        _ = sourceWidth;
+        _ = sourceHeight;
+        float scale = Math.Min((float)inputWidth / sourceRegion.Width, (float)inputHeight / sourceRegion.Height);
+        float padX = (inputWidth - (sourceRegion.Width * scale)) / 2f;
+        float padY = (inputHeight - (sourceRegion.Height * scale)) / 2f;
+        float inverse255 = 1f / 255f;
+        float[] tensorData = new float[3 * inputWidth * inputHeight];
+        int planeSize = inputWidth * inputHeight;
+
+        for (int y = 0; y < inputHeight; y++)
         {
-            int byteCount = Math.Abs(bitmapData.Stride) * inputHeight;
-            byte[] pixelBytes = new byte[byteCount];
-            System.Runtime.InteropServices.Marshal.Copy(bitmapData.Scan0, pixelBytes, 0, byteCount);
-
-            float[] tensorData = new float[3 * inputWidth * inputHeight];
-            int planeSize = inputWidth * inputHeight;
-
-            for (int y = 0; y < inputHeight; y++)
+            float sourceY = ((y + 0.5f - padY) / scale) - 0.5f;
+            int sampleY = (int)MathF.Round(sourceY);
+            if ((uint)sampleY >= (uint)sourceRegion.Height)
             {
-                int rowOffset = y * bitmapData.Stride;
-                for (int x = 0; x < inputWidth; x++)
-                {
-                    int pixelOffset = rowOffset + (x * 3);
-                    int tensorOffset = y * inputWidth + x;
-
-                    byte blue = pixelBytes[pixelOffset];
-                    byte green = pixelBytes[pixelOffset + 1];
-                    byte red = pixelBytes[pixelOffset + 2];
-
-                    tensorData[tensorOffset] = red / 255f;
-                    tensorData[planeSize + tensorOffset] = green / 255f;
-                    tensorData[(planeSize * 2) + tensorOffset] = blue / 255f;
-                }
+                continue;
             }
 
-            return new PreprocessResult(canvas, tensorData, scale, padX, padY);
+            int sourceRowOffset = (sourceRegion.Top + sampleY) * sourceStride;
+            int tensorRowOffset = y * inputWidth;
+            for (int x = 0; x < inputWidth; x++)
+            {
+                float sourceX = ((x + 0.5f - padX) / scale) - 0.5f;
+                int sampleX = (int)MathF.Round(sourceX);
+                if ((uint)sampleX >= (uint)sourceRegion.Width)
+                {
+                    continue;
+                }
+
+                int pixelOffset = sourceRowOffset + ((sourceRegion.Left + sampleX) * 4);
+                int tensorOffset = tensorRowOffset + x;
+                tensorData[tensorOffset] = sourcePixels[pixelOffset + 2] * inverse255;
+                tensorData[planeSize + tensorOffset] = sourcePixels[pixelOffset + 1] * inverse255;
+                tensorData[(planeSize * 2) + tensorOffset] = sourcePixels[pixelOffset] * inverse255;
+            }
         }
-        finally
-        {
-            canvas.UnlockBits(bitmapData);
-        }
+
+        return new PreprocessResult(tensorData, scale, padX, padY);
     }
 
     private OutputSnapshot CreateOutputSnapshot(DisposableNamedOnnxValue result)
@@ -493,6 +491,25 @@ internal sealed class YoloDetector : IDisposable
         return new RectangleF(left, top, Math.Max(0, right - left), Math.Max(0, bottom - top));
     }
 
+    private static IReadOnlyList<DetectionResult> OffsetDetections(IReadOnlyList<DetectionResult> detections, Point offset)
+    {
+        var offsetDetections = new DetectionResult[detections.Count];
+        for (int i = 0; i < detections.Count; i++)
+        {
+            DetectionResult detection = detections[i];
+            offsetDetections[i] = detection with
+            {
+                Box = new RectangleF(
+                    detection.Box.X + offset.X,
+                    detection.Box.Y + offset.Y,
+                    detection.Box.Width,
+                    detection.Box.Height)
+            };
+        }
+
+        return offsetDetections;
+    }
+
     private string BuildModelSummary()
     {
         var lines = new List<string>
@@ -514,26 +531,6 @@ internal sealed class YoloDetector : IDisposable
         }
 
         lines.Add("解析顺序: 多输出 End-to-End -> 单输出 6 列 End-to-End -> 原始 YOLO 输出");
-        return string.Join(Environment.NewLine, lines);
-    }
-
-    private string BuildRuntimeSummary(IReadOnlyList<OutputSnapshot> outputs, int detectionCount)
-    {
-        var lines = new List<string>
-        {
-            ModelSummary,
-            string.Empty,
-            "最近一次推理输出采样",
-            $"检测数量: {detectionCount}"
-        };
-
-        foreach (var output in outputs)
-        {
-            string sample = string.Join(", ",
-                output.Data.Take(6).Select(static value => value.ToString("0.####")));
-            lines.Add($"- {output.Name}: {output.ElementType} [{FormatDimensions(output.Dimensions)}] sample=[{sample}]");
-        }
-
         return string.Join(Environment.NewLine, lines);
     }
 
@@ -569,7 +566,6 @@ internal sealed class YoloDetector : IDisposable
         float intersectionWidth = Math.Max(0, right - left);
         float intersectionHeight = Math.Max(0, bottom - top);
         float intersectionArea = intersectionWidth * intersectionHeight;
-
         if (intersectionArea <= 0)
         {
             return 0f;
@@ -579,17 +575,11 @@ internal sealed class YoloDetector : IDisposable
         return unionArea <= 0 ? 0f : intersectionArea / unionArea;
     }
 
-    private sealed record PreprocessResult(Bitmap Canvas, float[] TensorData, float Scale, float PadX, float PadY) : IDisposable
-    {
-        public void Dispose()
-        {
-            Canvas.Dispose();
-        }
-    }
+    private sealed record PreprocessResult(float[] TensorData, float Scale, float PadX, float PadY);
 
     private sealed record OutputSnapshot(string Name, int[] Dimensions, TensorElementType ElementType, float[] Data);
 }
 
 internal sealed record DetectionResult(RectangleF Box, float Score, int ClassId, string Label);
-internal sealed record DetectionRunResult(IReadOnlyList<DetectionResult> Detections, string DebugSummary);
+internal sealed record DetectionRunResult(IReadOnlyList<DetectionResult> Detections);
 internal sealed record DetectorOptions(bool PreferGpu, float ScoreThreshold);

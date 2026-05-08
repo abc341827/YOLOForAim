@@ -32,13 +32,14 @@ namespace YOLOForAim
         private Task? inferenceTask;
         private YoloDetector? yoloDetector;
         private int processedFrameCounter;
-        private readonly Stopwatch inferenceFpsStopwatch = new();
-        private int inferenceFpsFrameCounter;
         private double currentInferenceFps;
+        private double inferenceFpsAccumulatedMs;
+        private int inferenceFpsFrameCounter;
+        private readonly Stopwatch inferenceFpsUiStopwatch = new();
         private readonly object latestFrameLock = new();
         private readonly object overlayStateLock = new();
-        private Bitmap? latestCapturedFrame;
-        private Rectangle latestCapturedBounds;
+        private WindowGraphicsCapture? windowCapture;
+        private CapturedPixelFrame? latestCapturedFrame;
         private int latestCapturedFrameVersion;
         private Rectangle latestOverlayCaptureBounds;
         private DetectionResult[] latestOverlayDetections = Array.Empty<DetectionResult>();
@@ -74,8 +75,10 @@ namespace YOLOForAim
             InitializeComponent();
             overlayRefreshTimer = new System.Windows.Forms.Timer { Interval = 33 };
             overlayRefreshTimer.Tick += OverlayRefreshTimer_Tick;
+            pictureBoxPreview.Visible = false;
             lblStatus.Text = "请选择目标窗口。";
             txtDiagnostics.Text = "YOLO FPS: 0.0";
+            chkOverlayEnabled.Checked = true;
             chkCenterRoi.Checked = false;
             numRoiSize.Value = 640;
             numPreviewInterval.Value = 1;
@@ -139,10 +142,12 @@ namespace YOLOForAim
             {
                 yoloDetector?.Dispose();
                 yoloDetector = new YoloDetector(modelPath, new DetectorOptions(chkPreferGpu.Checked, (float)numScoreThreshold.Value / 100f));
+                windowCapture?.Dispose();
+                windowCapture = new WindowGraphicsCapture(selectedHwnd);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"模型加载失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"初始化失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
@@ -150,7 +155,8 @@ namespace YOLOForAim
             processedFrameCounter = 0;
             inferenceFpsFrameCounter = 0;
             currentInferenceFps = 0;
-            inferenceFpsStopwatch.Restart();
+            inferenceFpsAccumulatedMs = 0;
+            inferenceFpsUiStopwatch.Restart();
             ResetAimRuntimeState();
             currentCenterRoiOnly = chkCenterRoi.Checked;
             currentRoiSize = (int)numRoiSize.Value;
@@ -178,7 +184,7 @@ namespace YOLOForAim
 
             btnStartDetection.Enabled = false;
             btnStopDetection.Enabled = true;
-            lblStatus.Text = $"检测中... ROI={(currentCenterRoiOnly ? $"中心 {currentRoiSize}" : "全窗口")}, 预览每 {currentPreviewInterval} 帧刷新";
+            lblStatus.Text = $"检测中... ROI={(currentCenterRoiOnly ? $"中心 {currentRoiSize}" : "全窗口")}, 已关闭内置预览";
         }
 
         private async Task ToggleDetectionAsync()
@@ -237,14 +243,13 @@ namespace YOLOForAim
 
             lock (latestFrameLock)
             {
-                latestCapturedFrame?.Dispose();
                 latestCapturedFrame = null;
-                latestCapturedBounds = Rectangle.Empty;
             }
 
             pictureBoxPreview.Image?.Dispose();
             detectionOverlay?.Close();
             detectionOverlay?.Dispose();
+            windowCapture?.Dispose();
             yoloDetector?.Dispose();
             detectionCancellationTokenSource?.Dispose();
             SaveUiSettings();
@@ -292,18 +297,19 @@ namespace YOLOForAim
                 detectionCancellationTokenSource = null;
                 lock (latestFrameLock)
                 {
-                    latestCapturedFrame?.Dispose();
                     latestCapturedFrame = null;
-                    latestCapturedBounds = Rectangle.Empty;
                     latestCapturedFrameVersion = 0;
                 }
+                windowCapture?.Dispose();
+                windowCapture = null;
                 overlayRefreshTimer.Stop();
                 ClearOverlayState();
                 detectionOverlay?.HideOverlay();
                 ResetAimRuntimeState();
                 currentInferenceFps = 0;
+                inferenceFpsAccumulatedMs = 0;
                 inferenceFpsFrameCounter = 0;
-                inferenceFpsStopwatch.Reset();
+                inferenceFpsUiStopwatch.Reset();
                 btnStartDetection.Enabled = true;
                 btnStopDetection.Enabled = false;
                 lblStatus.Text = "检测已停止。";
@@ -317,22 +323,17 @@ namespace YOLOForAim
             {
                 try
                 {
-                    CapturedFrame? capturedFrame = CaptureWindow(selectedHwnd, currentCenterRoiOnly, currentRoiSize);
-                    if (capturedFrame is null)
+                    if (windowCapture is null || !windowCapture.TryGetLatestFrame(50, out CapturedPixelFrame capturedFrame))
                     {
-                        await Task.Delay(30, cancellationToken);
+                        await Task.Delay(1, cancellationToken);
                         continue;
                     }
 
                     lock (latestFrameLock)
                     {
-                        latestCapturedFrame?.Dispose();
-                        latestCapturedFrame = capturedFrame.Frame;
-                        latestCapturedBounds = capturedFrame.ScreenBounds;
+                        latestCapturedFrame = capturedFrame;
                         latestCapturedFrameVersion++;
                     }
-
-                    await Task.Delay(5, cancellationToken);
                 }
                 catch (OperationCanceledException)
                 {
@@ -362,16 +363,14 @@ namespace YOLOForAim
             {
                 try
                 {
-                    Bitmap? frameToProcess = null;
-                    Rectangle frameBounds = Rectangle.Empty;
+                    CapturedPixelFrame? frameToProcess = null;
                     int currentVersion;
                     lock (latestFrameLock)
                     {
                         currentVersion = latestCapturedFrameVersion;
                         if (latestCapturedFrame is not null && currentVersion != processedVersion)
                         {
-                            frameToProcess = (Bitmap)latestCapturedFrame.Clone();
-                            frameBounds = latestCapturedBounds;
+                            frameToProcess = latestCapturedFrame;
                             processedVersion = currentVersion;
                         }
                     }
@@ -382,31 +381,27 @@ namespace YOLOForAim
                         continue;
                     }
 
-                    using (frameToProcess)
+                    if (frameToProcess is not null)
                     {
-                        DetectionRunResult result = yoloDetector?.Detect(frameToProcess) ?? new DetectionRunResult(Array.Empty<DetectionResult>(), "检测器未初始化。");
-                        TryMoveMouseToNearestDetection(result.Detections, frameBounds, processedVersion);
-                        UpdateOverlayState(frameBounds, result.Detections);
+                        Rectangle sourceRegion = GetSourceRegion(frameToProcess.Width, frameToProcess.Height);
+                        var detectStopwatch = Stopwatch.StartNew();
+                        DetectionRunResult result = yoloDetector?.Detect(
+                            frameToProcess.Pixels,
+                            frameToProcess.Width,
+                            frameToProcess.Height,
+                            frameToProcess.Stride,
+                            sourceRegion) ?? new DetectionRunResult(Array.Empty<DetectionResult>());
+                        detectStopwatch.Stop();
+                        TryMoveMouseToNearestDetection(result.Detections, frameToProcess.ScreenBounds, processedVersion);
+                        UpdateOverlayState(frameToProcess.ScreenBounds, result.Detections);
                         processedFrameCounter++;
-                        UpdateInferenceFps();
+                        UpdateInferenceFps(detectStopwatch.Elapsed.TotalMilliseconds);
 
-                        bool refreshPreview = processedFrameCounter % currentPreviewInterval == 0;
-                        bool refreshUi = refreshPreview || processedFrameCounter % 5 == 0;
-
-                        Bitmap? previewFrame = null;
-                        if (refreshPreview)
-                        {
-                            previewFrame = (Bitmap)frameToProcess.Clone();
-                            DrawDetections(previewFrame, result.Detections);
-                        }
+                        bool refreshUi = processedFrameCounter % 5 == 0;
 
                         if (!IsDisposed && refreshUi)
                         {
-                            BeginInvoke(new Action(() => UpdatePreviewImage(previewFrame, result.Detections.Count)));
-                        }
-                        else
-                        {
-                            previewFrame?.Dispose();
+                            BeginInvoke(new Action(() => UpdatePreviewImage(null, result.Detections.Count)));
                         }
                     }
                 }
@@ -443,22 +438,52 @@ namespace YOLOForAim
             txtDiagnostics.Text = $"YOLO FPS: {currentInferenceFps:F1}";
         }
 
-        private void UpdateInferenceFps()
+        private Rectangle GetSourceRegion(int frameWidth, int frameHeight)
         {
+            if (!currentCenterRoiOnly)
+            {
+                return new Rectangle(0, 0, frameWidth, frameHeight);
+            }
+
+            int squareSize = Math.Max(64, Math.Min(currentRoiSize, Math.Min(frameWidth, frameHeight)));
+            return new Rectangle(
+                (frameWidth - squareSize) / 2,
+                (frameHeight - squareSize) / 2,
+                squareSize,
+                squareSize);
+        }
+
+        private void UpdateInferenceFps(double detectElapsedMs)
+        {
+            inferenceFpsAccumulatedMs += detectElapsedMs;
             inferenceFpsFrameCounter++;
-            long elapsedMilliseconds = inferenceFpsStopwatch.ElapsedMilliseconds;
+            long elapsedMilliseconds = inferenceFpsUiStopwatch.ElapsedMilliseconds;
             if (elapsedMilliseconds < 1000)
             {
                 return;
             }
 
-            currentInferenceFps = inferenceFpsFrameCounter * 1000d / elapsedMilliseconds;
+            currentInferenceFps = inferenceFpsAccumulatedMs <= 0
+                ? 0
+                : inferenceFpsFrameCounter * 1000d / inferenceFpsAccumulatedMs;
+            inferenceFpsAccumulatedMs = 0;
             inferenceFpsFrameCounter = 0;
-            inferenceFpsStopwatch.Restart();
+            inferenceFpsUiStopwatch.Restart();
         }
 
         private void OverlayRefreshTimer_Tick(object? sender, EventArgs e)
         {
+            RefreshDetectionOverlay();
+        }
+
+        private void chkOverlayEnabled_CheckedChanged(object? sender, EventArgs e)
+        {
+            if (!chkOverlayEnabled.Checked)
+            {
+                detectionOverlay?.HideOverlay();
+                return;
+            }
+
             RefreshDetectionOverlay();
         }
 
@@ -492,7 +517,7 @@ namespace YOLOForAim
 
         private void RefreshDetectionOverlay()
         {
-            if (selectedHwnd == IntPtr.Zero)
+            if (!chkOverlayEnabled.Checked || selectedHwnd == IntPtr.Zero)
             {
                 detectionOverlay?.HideOverlay();
                 return;
@@ -846,6 +871,7 @@ namespace YOLOForAim
                 chkCenterRoi.Checked = settings.CenterRoiOnly;
                 SetNumericValue(numRoiSize, settings.RoiSize);
                 chkPreferGpu.Checked = settings.PreferGpu;
+                chkOverlayEnabled.Checked = settings.OverlayEnabled;
                 SetNumericValue(numScoreThreshold, settings.ScoreThresholdPercent);
                 SetNumericValue(numPreviewInterval, settings.PreviewInterval);
                 SetNumericValue(numAimHeightPercent, settings.AimHeightPercent);
@@ -874,6 +900,7 @@ namespace YOLOForAim
                     chkCenterRoi.Checked,
                     (int)numRoiSize.Value,
                     chkPreferGpu.Checked,
+                    chkOverlayEnabled.Checked,
                     (int)numScoreThreshold.Value,
                     (int)numPreviewInterval.Value,
                     (int)numAimHeightPercent.Value,
@@ -991,6 +1018,7 @@ namespace YOLOForAim
             bool CenterRoiOnly,
             int RoiSize,
             bool PreferGpu,
+            bool OverlayEnabled,
             int ScoreThresholdPercent,
             int PreviewInterval,
             int AimHeightPercent,

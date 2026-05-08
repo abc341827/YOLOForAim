@@ -65,6 +65,7 @@
             this.numAimMoveCooldown = new System.Windows.Forms.NumericUpDown();
             this.lblAimFeedbackFrameDelay = new System.Windows.Forms.Label();
             this.numAimFeedbackFrameDelay = new System.Windows.Forms.NumericUpDown();
+            this.chkOverlayEnabled = new System.Windows.Forms.CheckBox();
             this.lblParameterHint = new System.Windows.Forms.Label();
             this.lblHandle = new System.Windows.Forms.Label();
             this.lblStatus = new System.Windows.Forms.Label();
@@ -591,6 +592,20 @@
             0});
             this.toolTipDescriptions.SetToolTip(this.numAimFeedbackFrameDelay, "建议 1~3。截图频率高于游戏刷新率时，这个参数通常很有用。");
             // 
+            // chkOverlayEnabled
+            // 
+            this.chkOverlayEnabled.AutoSize = true;
+            this.chkOverlayEnabled.Checked = true;
+            this.chkOverlayEnabled.CheckState = System.Windows.Forms.CheckState.Checked;
+            this.chkOverlayEnabled.Location = new System.Drawing.Point(585, 168);
+            this.chkOverlayEnabled.Name = "chkOverlayEnabled";
+            this.chkOverlayEnabled.Size = new System.Drawing.Size(146, 19);
+            this.chkOverlayEnabled.TabIndex = 33;
+            this.chkOverlayEnabled.Text = "启用窗口叠加框绘制";
+            this.toolTipDescriptions.SetToolTip(this.chkOverlayEnabled, "开启后在目标窗口上绘制检测框，关闭可观察其对性能的影响。");
+            this.chkOverlayEnabled.UseVisualStyleBackColor = true;
+            this.chkOverlayEnabled.CheckedChanged += new System.EventHandler(this.chkOverlayEnabled_CheckedChanged);
+            // 
             // lblParameterHint
             // 
             this.lblParameterHint.AutoSize = true;
@@ -598,7 +613,7 @@
             this.lblParameterHint.Location = new System.Drawing.Point(12, 196);
             this.lblParameterHint.Name = "lblParameterHint";
             this.lblParameterHint.Size = new System.Drawing.Size(439, 15);
-            this.lblParameterHint.TabIndex = 33;
+            this.lblParameterHint.TabIndex = 34;
             this.lblParameterHint.Text = "参数说明：将鼠标停留在按钮或输入框上可查看用途。新增反馈抑制参数可减少乱飘。";
             // 
             // lblHandle
@@ -646,6 +661,7 @@
             ClientSize = new Size(800, 748);
             Controls.Add(this.txtDiagnostics);
             Controls.Add(this.pictureBoxPreview);
+            Controls.Add(this.chkOverlayEnabled);
             Controls.Add(this.lblParameterHint);
             Controls.Add(this.numAimFeedbackFrameDelay);
             Controls.Add(this.lblAimFeedbackFrameDelay);
@@ -741,6 +757,7 @@
         private System.Windows.Forms.NumericUpDown numAimMoveCooldown;
         private System.Windows.Forms.Label lblAimFeedbackFrameDelay;
         private System.Windows.Forms.NumericUpDown numAimFeedbackFrameDelay;
+        private System.Windows.Forms.CheckBox chkOverlayEnabled;
         private System.Windows.Forms.Label lblParameterHint;
         private System.Windows.Forms.Label lblHandle;
         private System.Windows.Forms.Label lblStatus;
