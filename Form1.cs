@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Windows.Forms;
 
 namespace YOLOForAim
@@ -13,6 +14,7 @@ namespace YOLOForAim
         private const uint MOD_NONE = 0x0000;
         private const uint VK_Z = 0x5A;
         private const int VK_LBUTTON = 0x01;
+        private static readonly string UiSettingsFilePath = Path.Combine(AppContext.BaseDirectory, "ui-settings.json");
 
         private IntPtr selectedHwnd = IntPtr.Zero;
         private bool hotKeyRegistered;
@@ -55,6 +57,8 @@ namespace YOLOForAim
             numAimMaxStep.Value = 36;
             numAimSwitchDistance.Value = 140;
             numAimMaxMissedFrames.Value = 3;
+            numScoreThreshold.Value = 35;
+            LoadUiSettings();
         }
 
         private void btnSelectWindow_Click(object? sender, EventArgs e)
@@ -100,7 +104,7 @@ namespace YOLOForAim
             try
             {
                 yoloDetector?.Dispose();
-                yoloDetector = new YoloDetector(modelPath, new DetectorOptions(chkPreferGpu.Checked));
+                yoloDetector = new YoloDetector(modelPath, new DetectorOptions(chkPreferGpu.Checked, (float)numScoreThreshold.Value / 100f));
                 txtDiagnostics.Text = yoloDetector.ModelSummary;
             }
             catch (Exception ex)
@@ -195,6 +199,7 @@ namespace YOLOForAim
             pictureBoxPreview.Image?.Dispose();
             yoloDetector?.Dispose();
             detectionCancellationTokenSource?.Dispose();
+            SaveUiSettings();
             base.OnFormClosed(e);
         }
 
@@ -551,6 +556,72 @@ namespace YOLOForAim
             SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
         }
 
+        private void LoadUiSettings()
+        {
+            try
+            {
+                if (!File.Exists(UiSettingsFilePath))
+                {
+                    return;
+                }
+
+                string json = File.ReadAllText(UiSettingsFilePath);
+                UiSettings? settings = JsonSerializer.Deserialize<UiSettings>(json);
+                if (settings is null)
+                {
+                    return;
+                }
+
+                chkCenterRoi.Checked = settings.CenterRoiOnly;
+                SetNumericValue(numRoiSize, settings.RoiSize);
+                chkPreferGpu.Checked = settings.PreferGpu;
+                SetNumericValue(numScoreThreshold, settings.ScoreThresholdPercent);
+                SetNumericValue(numPreviewInterval, settings.PreviewInterval);
+                SetNumericValue(numAimHeightPercent, settings.AimHeightPercent);
+                SetNumericValue(numAimDeadzone, settings.AimDeadzone);
+                SetNumericValue(numAimSmoothing, settings.AimSmoothingPercent);
+                SetNumericValue(numAimSpeedMultiplier, settings.AimSpeedMultiplierPercent);
+                SetNumericValue(numAimMaxStep, settings.AimMaxStep);
+                SetNumericValue(numAimSwitchDistance, settings.AimSwitchDistance);
+                SetNumericValue(numAimMaxMissedFrames, settings.AimMaxMissedFrames);
+            }
+            catch
+            {
+            }
+        }
+
+        private void SaveUiSettings()
+        {
+            try
+            {
+                UiSettings settings = new(
+                    chkCenterRoi.Checked,
+                    (int)numRoiSize.Value,
+                    chkPreferGpu.Checked,
+                    (int)numScoreThreshold.Value,
+                    (int)numPreviewInterval.Value,
+                    (int)numAimHeightPercent.Value,
+                    (int)numAimDeadzone.Value,
+                    (int)numAimSmoothing.Value,
+                    (int)numAimSpeedMultiplier.Value,
+                    (int)numAimMaxStep.Value,
+                    (int)numAimSwitchDistance.Value,
+                    (int)numAimMaxMissedFrames.Value);
+
+                string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(UiSettingsFilePath, json);
+            }
+            catch
+            {
+            }
+        }
+
+        private static void SetNumericValue(NumericUpDown numericUpDown, int value)
+        {
+            decimal clampedValue = Math.Min(numericUpDown.Maximum, Math.Max(numericUpDown.Minimum, value));
+            numericUpDown.Value = clampedValue;
+        }
+
         private void DrawDetections(Bitmap frame, IReadOnlyList<DetectionResult> detections)
         {
             using var graphics = Graphics.FromImage(frame);
@@ -635,6 +706,19 @@ namespace YOLOForAim
         }
 
         private sealed record CapturedFrame(Bitmap Frame, Rectangle ScreenBounds);
+        private sealed record UiSettings(
+            bool CenterRoiOnly,
+            int RoiSize,
+            bool PreferGpu,
+            int ScoreThresholdPercent,
+            int PreviewInterval,
+            int AimHeightPercent,
+            int AimDeadzone,
+            int AimSmoothingPercent,
+            int AimSpeedMultiplierPercent,
+            int AimMaxStep,
+            int AimSwitchDistance,
+            int AimMaxMissedFrames);
         #endregion
     }
 

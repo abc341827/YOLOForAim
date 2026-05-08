@@ -8,7 +8,6 @@ namespace YOLOForAim;
 
 internal sealed class YoloDetector : IDisposable
 {
-    private const float ScoreThreshold = 0.35f;
     private const float NmsThreshold = 0.45f;
 
     private readonly InferenceSession session;
@@ -18,11 +17,14 @@ internal sealed class YoloDetector : IDisposable
     private readonly TensorElementType inputElementType;
     private readonly string executionProvider;
     private readonly string executionProviderDetails;
+    private readonly float scoreThreshold;
 
     public string ModelSummary { get; }
 
     public YoloDetector(string modelPath, DetectorOptions detectorOptions)
     {
+        scoreThreshold = detectorOptions.ScoreThreshold;
+
         var sessionOptions = new SessionOptions
         {
             GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL
@@ -248,7 +250,7 @@ internal sealed class YoloDetector : IDisposable
         for (int index = 0; index < detectionCount; index++)
         {
             float score = scoresOutput.Data[index];
-            if (score < ScoreThreshold)
+            if (score < scoreThreshold)
             {
                 continue;
             }
@@ -272,7 +274,7 @@ internal sealed class YoloDetector : IDisposable
         return true;
     }
 
-    private static bool TryParseEndToEndSingleOutput(
+    private bool TryParseEndToEndSingleOutput(
         OutputSnapshot output,
         Size originalSize,
         float scale,
@@ -311,7 +313,7 @@ internal sealed class YoloDetector : IDisposable
         {
             int rowOffset = rowIndex * attributeCount;
             float score = output.Data[rowOffset + 4];
-            if (score < ScoreThreshold)
+            if (score < scoreThreshold)
             {
                 continue;
             }
@@ -340,7 +342,7 @@ internal sealed class YoloDetector : IDisposable
         return parsedDetections.Count > 0 || rowCount > 0;
     }
 
-    private static bool TryParseRawYoloOutput(
+    private bool TryParseRawYoloOutput(
         OutputSnapshot output,
         Size originalSize,
         float scale,
@@ -419,7 +421,7 @@ internal sealed class YoloDetector : IDisposable
                 }
             }
 
-            if (maxScore < ScoreThreshold)
+            if (maxScore < scoreThreshold)
             {
                 continue;
             }
@@ -500,6 +502,7 @@ internal sealed class YoloDetector : IDisposable
             $"输入类型: {inputElementType}",
             $"执行设备: {executionProvider}",
             $"设备说明: {executionProviderDetails}",
+            $"检测阈值: {scoreThreshold:0.00}",
             $"输入形状: [1, 3, {inputHeight}, {inputWidth}]",
             "预处理: RGB / 归一化到 0-1 / NCHW / Letterbox",
             "输出:"
@@ -589,4 +592,4 @@ internal sealed class YoloDetector : IDisposable
 
 internal sealed record DetectionResult(RectangleF Box, float Score, int ClassId, string Label);
 internal sealed record DetectionRunResult(IReadOnlyList<DetectionResult> Detections, string DebugSummary);
-internal sealed record DetectorOptions(bool PreferGpu);
+internal sealed record DetectorOptions(bool PreferGpu, float ScoreThreshold);

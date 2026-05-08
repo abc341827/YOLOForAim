@@ -36,6 +36,8 @@
             this.chkCenterRoi = new System.Windows.Forms.CheckBox();
             this.numRoiSize = new System.Windows.Forms.NumericUpDown();
             this.chkPreferGpu = new System.Windows.Forms.CheckBox();
+            this.lblScoreThreshold = new System.Windows.Forms.Label();
+            this.numScoreThreshold = new System.Windows.Forms.NumericUpDown();
             this.numPreviewInterval = new System.Windows.Forms.NumericUpDown();
             this.lblPreviewInterval = new System.Windows.Forms.Label();
             this.lblAimHeightPercent = new System.Windows.Forms.Label();
@@ -56,6 +58,7 @@
             this.lblStatus = new System.Windows.Forms.Label();
             this.pictureBoxPreview = new System.Windows.Forms.PictureBox();
             this.txtDiagnostics = new System.Windows.Forms.TextBox();
+            ((System.ComponentModel.ISupportInitialize)(this.numScoreThreshold)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numRoiSize)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numPreviewInterval)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimHeightPercent)).BeginInit();
@@ -157,9 +160,35 @@
             this.chkPreferGpu.Text = "优先使用 GPU(DML)";
             this.chkPreferGpu.UseVisualStyleBackColor = true;
             // 
+            // lblScoreThreshold
+            // 
+            this.lblScoreThreshold.AutoSize = true;
+            this.lblScoreThreshold.Location = new System.Drawing.Point(368, 82);
+            this.lblScoreThreshold.Name = "lblScoreThreshold";
+            this.lblScoreThreshold.Size = new System.Drawing.Size(83, 15);
+            this.lblScoreThreshold.TabIndex = 7;
+            this.lblScoreThreshold.Text = "检测阈值(%)";
+            // 
+            // numScoreThreshold
+            // 
+            this.numScoreThreshold.Location = new System.Drawing.Point(457, 80);
+            this.numScoreThreshold.Minimum = new decimal(new int[] {
+            1,
+            0,
+            0,
+            0});
+            this.numScoreThreshold.Name = "numScoreThreshold";
+            this.numScoreThreshold.Size = new System.Drawing.Size(54, 23);
+            this.numScoreThreshold.TabIndex = 8;
+            this.numScoreThreshold.Value = new decimal(new int[] {
+            35,
+            0,
+            0,
+            0});
+            // 
             // numPreviewInterval
             // 
-            this.numPreviewInterval.Location = new System.Drawing.Point(478, 80);
+            this.numPreviewInterval.Location = new System.Drawing.Point(734, 80);
             this.numPreviewInterval.Minimum = new decimal(new int[] {
             1,
             0,
@@ -167,7 +196,7 @@
             0});
             this.numPreviewInterval.Name = "numPreviewInterval";
             this.numPreviewInterval.Size = new System.Drawing.Size(54, 23);
-            this.numPreviewInterval.TabIndex = 7;
+            this.numPreviewInterval.TabIndex = 9;
             this.numPreviewInterval.Value = new decimal(new int[] {
             1,
             0,
@@ -177,10 +206,10 @@
             // lblPreviewInterval
             // 
             this.lblPreviewInterval.AutoSize = true;
-            this.lblPreviewInterval.Location = new System.Drawing.Point(368, 82);
+            this.lblPreviewInterval.Location = new System.Drawing.Point(624, 82);
             this.lblPreviewInterval.Name = "lblPreviewInterval";
             this.lblPreviewInterval.Size = new System.Drawing.Size(104, 15);
-            this.lblPreviewInterval.TabIndex = 8;
+            this.lblPreviewInterval.TabIndex = 10;
             this.lblPreviewInterval.Text = "预览刷新间隔(帧)";
             // 
             // lblAimHeightPercent
@@ -420,6 +449,8 @@
             Controls.Add(this.txtDiagnostics);
             Controls.Add(this.pictureBoxPreview);
             Controls.Add(this.lblStatus);
+            Controls.Add(this.numScoreThreshold);
+            Controls.Add(this.lblScoreThreshold);
             Controls.Add(this.numAimSpeedMultiplier);
             Controls.Add(this.lblAimSpeedMultiplier);
             Controls.Add(this.numAimMaxMissedFrames);
@@ -446,6 +477,7 @@
             Controls.Add(this.lblHandle);
             Name = "Form1";
             Text = "YOLO 实时检测";
+            ((System.ComponentModel.ISupportInitialize)(this.numScoreThreshold)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numRoiSize)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numPreviewInterval)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimHeightPercent)).EndInit();
@@ -467,6 +499,8 @@
         private System.Windows.Forms.CheckBox chkCenterRoi;
         private System.Windows.Forms.NumericUpDown numRoiSize;
         private System.Windows.Forms.CheckBox chkPreferGpu;
+        private System.Windows.Forms.Label lblScoreThreshold;
+        private System.Windows.Forms.NumericUpDown numScoreThreshold;
         private System.Windows.Forms.NumericUpDown numPreviewInterval;
         private System.Windows.Forms.Label lblPreviewInterval;
         private System.Windows.Forms.Label lblAimHeightPercent;
