@@ -223,28 +223,23 @@ namespace YOLOForAim
 
         private static IntPtr FindWindowFromPoint(Point point, IntPtr overlayHandle)
         {
-            IntPtr hwnd = GetTopWindow(IntPtr.Zero);
-            while (hwnd != IntPtr.Zero)
+            var hwnd = WindowFromPoint(point);
+            if (hwnd == IntPtr.Zero || hwnd == overlayHandle)
             {
-                if (hwnd != overlayHandle && IsWindowVisible(hwnd))
-                {
-                    if (GetWindowRect(hwnd, out var r))
-                    {
-                        var wrect = new Rectangle(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top);
-                        if (wrect.Contains(point))
-                        {
-                            return hwnd;
-                        }
-                    }
-                }
-                hwnd = GetWindow(hwnd, GW_HWNDNEXT);
+                return IntPtr.Zero;
             }
 
-            return IntPtr.Zero;
+            var rootHwnd = GetAncestor(hwnd, GA_ROOT);
+            if (rootHwnd != IntPtr.Zero && rootHwnd != overlayHandle)
+            {
+                hwnd = rootHwnd;
+            }
+
+            return IsWindowVisible(hwnd) ? hwnd : IntPtr.Zero;
         }
 
         #region WinAPI
-        private const uint GW_HWNDNEXT = 2;
+        private const uint GA_ROOT = 2;
         private const int VK_LBUTTON = 0x01;
 
         [DllImport("user32.dll")]
@@ -252,10 +247,10 @@ namespace YOLOForAim
         private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
         [DllImport("user32.dll")]
-        private static extern IntPtr GetTopWindow(IntPtr hWnd);
+        private static extern IntPtr WindowFromPoint(Point Point);
 
         [DllImport("user32.dll")]
-        private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+        private static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
