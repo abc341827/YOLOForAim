@@ -73,7 +73,7 @@ namespace YOLOForAim
         public Form1()
         {
             InitializeComponent();
-            overlayRefreshTimer = new System.Windows.Forms.Timer { Interval = 33 };
+            overlayRefreshTimer = new System.Windows.Forms.Timer { Interval = 16 };
             overlayRefreshTimer.Tick += OverlayRefreshTimer_Tick;
             pictureBoxPreview.Visible = false;
             lblStatus.Text = "请选择目标窗口。";
@@ -493,6 +493,11 @@ namespace YOLOForAim
             {
                 latestOverlayCaptureBounds = captureBounds;
                 latestOverlayDetections = detections.Count == 0 ? Array.Empty<DetectionResult>() : detections.ToArray();
+            }
+
+            if (!IsDisposed && chkOverlayEnabled.Checked)
+            {
+                BeginInvoke(new Action(RefreshDetectionOverlay));
             }
         }
 

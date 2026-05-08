@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using Vortice.Direct3D;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
+using Vortice.Mathematics;
 using static Vortice.Direct3D11.D3D11;
 using static Vortice.DXGI.DXGI;
 
@@ -19,6 +20,8 @@ internal sealed class DesktopDuplicationCapture : IDisposable
     private ID3D11DeviceContext? d3dContext;
     private IDXGIOutputDuplication? duplication;
     private ID3D11Texture2D? stagingTexture;
+    private int stagingTextureWidth;
+    private int stagingTextureHeight;
     private Rectangle outputBounds;
     private bool disposed;
 
@@ -36,16 +39,39 @@ internal sealed class DesktopDuplicationCapture : IDisposable
             return false;
         }
 
+        Rectangle captureBounds;
+        bool frameAcquired = false;
+
         try
         {
             duplication.AcquireNextFrame((uint)timeoutMilliseconds, out _, out IDXGIResource desktopResource).CheckError();
+            frameAcquired = true;
             using (desktopResource)
             using (ID3D11Texture2D desktopTexture = desktopResource.QueryInterface<ID3D11Texture2D>())
             {
-                d3dContext.CopyResource(stagingTexture, desktopTexture);
-            }
+                if (!GetWindowRect(hwnd, out RECT rect))
+                {
+                    return false;
+                }
 
-            duplication.ReleaseFrame();
+                Rectangle windowBounds = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+                captureBounds = Rectangle.Intersect(windowBounds, outputBounds);
+                if (captureBounds.Width <= 0 || captureBounds.Height <= 0)
+                {
+                    return false;
+                }
+
+                EnsureStagingTextureSize(captureBounds.Width, captureBounds.Height);
+                if (stagingTexture is null)
+                {
+                    return false;
+                }
+
+                int sourceOffsetX = captureBounds.Left - outputBounds.Left;
+                int sourceOffsetY = captureBounds.Top - outputBounds.Top;
+                var sourceBox = new Box(sourceOffsetX, sourceOffsetY, 0, sourceOffsetX + captureBounds.Width, sourceOffsetY + captureBounds.Height, 1);
+                d3dContext.CopySubresourceRegion(stagingTexture, 0, 0, 0, 0, desktopTexture, 0, sourceBox);
+            }
         }
         catch (Exception ex) when ((uint)ex.HResult == DxgiErrorWaitTimeout)
         {
@@ -56,17 +82,12 @@ internal sealed class DesktopDuplicationCapture : IDisposable
             ReinitializeDuplication();
             return false;
         }
-
-        if (!GetWindowRect(hwnd, out RECT rect))
+        finally
         {
-            return false;
-        }
-
-        Rectangle windowBounds = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
-        Rectangle captureBounds = Rectangle.Intersect(windowBounds, outputBounds);
-        if (captureBounds.Width <= 0 || captureBounds.Height <= 0)
-        {
-            return false;
+            if (frameAcquired)
+            {
+                duplication.ReleaseFrame();
+            }
         }
 
         MappedSubresource mapped = d3dContext.Map(stagingTexture, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
@@ -76,8 +97,6 @@ internal sealed class DesktopDuplicationCapture : IDisposable
             int height = captureBounds.Height;
             int stride = width * 4;
             byte[] pixels = new byte[stride * height];
-            int sourceOffsetX = captureBounds.Left - outputBounds.Left;
-            int sourceOffsetY = captureBounds.Top - outputBounds.Top;
 
             unsafe
             {
@@ -86,7 +105,7 @@ internal sealed class DesktopDuplicationCapture : IDisposable
                 {
                     for (int y = 0; y < height; y++)
                     {
-                        byte* sourceRow = sourceStart + ((sourceOffsetY + y) * mapped.RowPitch) + (sourceOffsetX * 4);
+                        byte* sourceRow = sourceStart + (y * mapped.RowPitch);
                         byte* destinationRow = destinationStart + (y * stride);
                         Buffer.MemoryCopy(sourceRow, destinationRow, stride, stride);
                     }
@@ -213,12 +232,24 @@ internal sealed class DesktopDuplicationCapture : IDisposable
             CPUAccessFlags = CpuAccessFlags.Read,
             MiscFlags = ResourceOptionFlags.None
         });
+        stagingTextureWidth = width;
+        stagingTextureHeight = height;
+    }
+
+    private void EnsureStagingTextureSize(int width, int height)
+    {
+        if (stagingTexture is null || stagingTextureWidth != width || stagingTextureHeight != height)
+        {
+            CreateStagingTexture(width, height);
+        }
     }
 
     private void DisposeResources()
     {
         stagingTexture?.Dispose();
         stagingTexture = null;
+        stagingTextureWidth = 0;
+        stagingTextureHeight = 0;
         duplication?.Dispose();
         duplication = null;
         d3dContext?.Dispose();
