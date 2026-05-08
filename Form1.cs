@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows.Forms;
@@ -30,8 +31,10 @@ namespace YOLOForAim
         private Task? captureTask;
         private Task? inferenceTask;
         private YoloDetector? yoloDetector;
-        private int diagnosticsRefreshCounter;
         private int processedFrameCounter;
+        private readonly Stopwatch inferenceFpsStopwatch = new();
+        private int inferenceFpsFrameCounter;
+        private double currentInferenceFps;
         private readonly object latestFrameLock = new();
         private readonly object overlayStateLock = new();
         private Bitmap? latestCapturedFrame;
@@ -71,8 +74,8 @@ namespace YOLOForAim
             InitializeComponent();
             overlayRefreshTimer = new System.Windows.Forms.Timer { Interval = 33 };
             overlayRefreshTimer.Tick += OverlayRefreshTimer_Tick;
-            lblStatus.Text = $"模型路径: {modelPath}";
-            txtDiagnostics.Text = $"模型路径: {modelPath}";
+            lblStatus.Text = "请选择目标窗口。";
+            txtDiagnostics.Text = "YOLO FPS: 0.0";
             chkCenterRoi.Checked = false;
             numRoiSize.Value = 640;
             numPreviewInterval.Value = 1;
@@ -136,7 +139,6 @@ namespace YOLOForAim
             {
                 yoloDetector?.Dispose();
                 yoloDetector = new YoloDetector(modelPath, new DetectorOptions(chkPreferGpu.Checked, (float)numScoreThreshold.Value / 100f));
-                txtDiagnostics.Text = yoloDetector.ModelSummary;
             }
             catch (Exception ex)
             {
@@ -145,8 +147,10 @@ namespace YOLOForAim
             }
 
             detectionCancellationTokenSource = new CancellationTokenSource();
-            diagnosticsRefreshCounter = 0;
             processedFrameCounter = 0;
+            inferenceFpsFrameCounter = 0;
+            currentInferenceFps = 0;
+            inferenceFpsStopwatch.Restart();
             ResetAimRuntimeState();
             currentCenterRoiOnly = chkCenterRoi.Checked;
             currentRoiSize = (int)numRoiSize.Value;
@@ -163,6 +167,7 @@ namespace YOLOForAim
             currentAimCloseRangeSlowdownPixels = (float)numAimCloseRangeSlowdown.Value;
             currentAimMoveCooldownMs = (int)numAimMoveCooldown.Value;
             currentAimFeedbackFrameDelay = Math.Max(0, (int)numAimFeedbackFrameDelay.Value);
+            txtDiagnostics.Text = "YOLO FPS: 0.0";
             ClearOverlayState();
             EnsureDetectionOverlay();
             overlayRefreshTimer.Start();
@@ -296,9 +301,13 @@ namespace YOLOForAim
                 ClearOverlayState();
                 detectionOverlay?.HideOverlay();
                 ResetAimRuntimeState();
+                currentInferenceFps = 0;
+                inferenceFpsFrameCounter = 0;
+                inferenceFpsStopwatch.Reset();
                 btnStartDetection.Enabled = true;
                 btnStopDetection.Enabled = false;
                 lblStatus.Text = "检测已停止。";
+                txtDiagnostics.Text = "YOLO FPS: 0.0";
             }
         }
 
@@ -379,10 +388,10 @@ namespace YOLOForAim
                         TryMoveMouseToNearestDetection(result.Detections, frameBounds, processedVersion);
                         UpdateOverlayState(frameBounds, result.Detections);
                         processedFrameCounter++;
-                        diagnosticsRefreshCounter++;
+                        UpdateInferenceFps();
 
                         bool refreshPreview = processedFrameCounter % currentPreviewInterval == 0;
-                        string? diagnostics = diagnosticsRefreshCounter % 15 == 0 ? result.DebugSummary : null;
+                        bool refreshUi = refreshPreview || processedFrameCounter % 5 == 0;
 
                         Bitmap? previewFrame = null;
                         if (refreshPreview)
@@ -391,9 +400,9 @@ namespace YOLOForAim
                             DrawDetections(previewFrame, result.Detections);
                         }
 
-                        if (!IsDisposed && (previewFrame is not null || diagnostics is not null))
+                        if (!IsDisposed && refreshUi)
                         {
-                            BeginInvoke(new Action(() => UpdatePreviewImage(previewFrame, result.Detections.Count, diagnostics)));
+                            BeginInvoke(new Action(() => UpdatePreviewImage(previewFrame, result.Detections.Count)));
                         }
                         else
                         {
@@ -421,7 +430,7 @@ namespace YOLOForAim
             }
         }
 
-        private void UpdatePreviewImage(Bitmap? previewFrame, int detectionCount, string? diagnostics)
+        private void UpdatePreviewImage(Bitmap? previewFrame, int detectionCount)
         {
             if (previewFrame is not null)
             {
@@ -431,11 +440,21 @@ namespace YOLOForAim
             }
 
             lblStatus.Text = $"检测中，目标数: {detectionCount}";
+            txtDiagnostics.Text = $"YOLO FPS: {currentInferenceFps:F1}";
+        }
 
-            if (!string.IsNullOrWhiteSpace(diagnostics))
+        private void UpdateInferenceFps()
+        {
+            inferenceFpsFrameCounter++;
+            long elapsedMilliseconds = inferenceFpsStopwatch.ElapsedMilliseconds;
+            if (elapsedMilliseconds < 1000)
             {
-                txtDiagnostics.Text = diagnostics;
+                return;
             }
+
+            currentInferenceFps = inferenceFpsFrameCounter * 1000d / elapsedMilliseconds;
+            inferenceFpsFrameCounter = 0;
+            inferenceFpsStopwatch.Restart();
         }
 
         private void OverlayRefreshTimer_Tick(object? sender, EventArgs e)
