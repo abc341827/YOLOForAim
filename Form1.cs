@@ -24,8 +24,9 @@ namespace YOLOForAim
         private const float AimHeightHighConfidenceBlend = 0.45f;
         private const float AimHeightLowConfidenceBlend = 0.12f;
         private const float AimHeightLowConfidenceMinRatio = 0.92f;
-        private const float AimPendingCompensationDecay = 0.45f;
-        private const float AimPendingCompensationFactor = 0.75f;
+        private const float AimPendingCompensationDecay = 0.2f;
+        private const float AimPendingCompensationFactor = 0.35f;
+        private const float AimPendingCompensationMaxOffsetRatio = 0.35f;
         private static readonly string UiSettingsFilePath = Path.Combine(AppContext.BaseDirectory, "ui-settings.json");
 
         private IntPtr selectedHwnd = IntPtr.Zero;
@@ -639,8 +640,12 @@ namespace YOLOForAim
             }
 
             PointF targetPointForMove = smoothedTargetScreenPoint.Value;
-            float rawMoveX = (targetPointForMove.X - cursorPosition.X) - pendingAimCompensation.X;
-            float rawMoveY = (targetPointForMove.Y - cursorPosition.Y) - pendingAimCompensation.Y;
+            float targetOffsetX = targetPointForMove.X - cursorPosition.X;
+            float targetOffsetY = targetPointForMove.Y - cursorPosition.Y;
+            float appliedCompensationX = GetAppliedPendingCompensation(targetOffsetX, pendingAimCompensation.X);
+            float appliedCompensationY = GetAppliedPendingCompensation(targetOffsetY, pendingAimCompensation.Y);
+            float rawMoveX = targetOffsetX - appliedCompensationX;
+            float rawMoveY = targetOffsetY - appliedCompensationY;
             float distanceToAimPoint = MathF.Sqrt((rawMoveX * rawMoveX) + (rawMoveY * rawMoveY));
             if (distanceToAimPoint <= currentAimDeadzonePixels)
             {
@@ -677,9 +682,7 @@ namespace YOLOForAim
             SendRelativeMouseMove(finalMoveX, finalMoveY);
             lastAimMoveTick = now;
             lastAimMoveFrameVersion = processedFrameVersion;
-            pendingAimCompensation = new PointF(
-                pendingAimCompensation.X + (finalMoveX * AimPendingCompensationFactor),
-                pendingAimCompensation.Y + (finalMoveY * AimPendingCompensationFactor));
+            UpdatePendingAimCompensationAfterMove(finalMoveX, finalMoveY);
         }
 
         private void ResetAimRuntimeState()
@@ -746,6 +749,38 @@ namespace YOLOForAim
             }
 
             lastPendingCompensationFrameVersion = processedFrameVersion;
+        }
+
+        private static float GetAppliedPendingCompensation(float targetOffset, float pendingCompensation)
+        {
+            if (targetOffset == 0f || pendingCompensation == 0f || MathF.Sign(targetOffset) != MathF.Sign(pendingCompensation))
+            {
+                return 0f;
+            }
+
+            float maxAppliedCompensation = MathF.Abs(targetOffset) * AimPendingCompensationMaxOffsetRatio;
+            return Math.Clamp(pendingCompensation, -maxAppliedCompensation, maxAppliedCompensation);
+        }
+
+        private void UpdatePendingAimCompensationAfterMove(int moveX, int moveY)
+        {
+            float compensationX = pendingAimCompensation.X;
+            float compensationY = pendingAimCompensation.Y;
+
+            if (compensationX != 0f && Math.Sign(moveX) != Math.Sign(compensationX))
+            {
+                compensationX = 0f;
+            }
+
+            if (compensationY != 0f && Math.Sign(moveY) != Math.Sign(compensationY))
+            {
+                compensationY = 0f;
+            }
+
+            float maxCompensation = Math.Max(1f, currentAimMaxStepPixels * currentAimSpeedMultiplier);
+            pendingAimCompensation = new PointF(
+                Math.Clamp(compensationX + (moveX * AimPendingCompensationFactor), -maxCompensation, maxCompensation),
+                Math.Clamp(compensationY + (moveY * AimPendingCompensationFactor), -maxCompensation, maxCompensation));
         }
 
         private bool CanSendAimMove(long now, int processedFrameVersion)
