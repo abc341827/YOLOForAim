@@ -8,10 +8,11 @@ namespace YOLOForAim
 {
     public partial class Form1 : Form
     {
-        private const int HotKeyIdSendMouseUp = 1;
+        private const int HotKeyIdToggleDetection = 1;
         private const int WM_HOTKEY = 0x0312;
         private const uint MOD_NONE = 0x0000;
         private const uint VK_Z = 0x5A;
+        private const int VK_LBUTTON = 0x01;
 
         private IntPtr selectedHwnd = IntPtr.Zero;
         private bool hotKeyRegistered;
@@ -24,6 +25,7 @@ namespace YOLOForAim
         private int processedFrameCounter;
         private readonly object latestFrameLock = new();
         private Bitmap? latestCapturedFrame;
+        private Rectangle latestCapturedBounds;
         private int latestCapturedFrameVersion;
         private bool currentCenterRoiOnly;
         private int currentRoiSize;
@@ -34,8 +36,9 @@ namespace YOLOForAim
             InitializeComponent();
             lblStatus.Text = $"模型路径: {modelPath}";
             txtDiagnostics.Text = $"模型路径: {modelPath}";
+            chkCenterRoi.Checked = false;
             numRoiSize.Value = 640;
-            numPreviewInterval.Value = 3;
+            numPreviewInterval.Value = 1;
         }
 
         private void btnSelectWindow_Click(object? sender, EventArgs e)
@@ -51,10 +54,15 @@ namespace YOLOForAim
 
         private void btnSendMouseUp_Click(object? sender, EventArgs e)
         {
-            SendMouseMoveUp();
+            _ = ToggleDetectionAsync();
         }
 
         private void btnStartDetection_Click(object? sender, EventArgs e)
+        {
+            StartDetection();
+        }
+
+        private void StartDetection()
         {
             if (selectedHwnd == IntPtr.Zero)
             {
@@ -99,6 +107,17 @@ namespace YOLOForAim
             lblStatus.Text = $"检测中... ROI={(currentCenterRoiOnly ? $"中心 {currentRoiSize}" : "全窗口")}, 预览每 {currentPreviewInterval} 帧刷新";
         }
 
+        private async Task ToggleDetectionAsync()
+        {
+            if (captureTask is not null || inferenceTask is not null)
+            {
+                await StopDetectionAsync();
+                return;
+            }
+
+            StartDetection();
+        }
+
         private async void btnStopDetection_Click(object? sender, EventArgs e)
         {
             await StopDetectionAsync();
@@ -108,7 +127,7 @@ namespace YOLOForAim
         {
             base.OnHandleCreated(e);
 
-            hotKeyRegistered = RegisterHotKey(Handle, HotKeyIdSendMouseUp, MOD_NONE, VK_Z);
+            hotKeyRegistered = RegisterHotKey(Handle, HotKeyIdToggleDetection, MOD_NONE, VK_Z);
             if (!hotKeyRegistered)
             {
                 MessageBox.Show("全局快捷键 Z 注册失败。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -119,7 +138,7 @@ namespace YOLOForAim
         {
             if (hotKeyRegistered)
             {
-                UnregisterHotKey(Handle, HotKeyIdSendMouseUp);
+                UnregisterHotKey(Handle, HotKeyIdToggleDetection);
                 hotKeyRegistered = false;
             }
 
@@ -145,6 +164,7 @@ namespace YOLOForAim
             {
                 latestCapturedFrame?.Dispose();
                 latestCapturedFrame = null;
+                latestCapturedBounds = Rectangle.Empty;
             }
 
             pictureBoxPreview.Image?.Dispose();
@@ -155,48 +175,13 @@ namespace YOLOForAim
 
         protected override void WndProc(ref Message m)
         {
-            if (m.Msg == WM_HOTKEY && m.WParam == (IntPtr)HotKeyIdSendMouseUp)
+            if (m.Msg == WM_HOTKEY && m.WParam == (IntPtr)HotKeyIdToggleDetection)
             {
-                SendMouseMoveUp();
+                BeginInvoke(new Action(async () => await ToggleDetectionAsync()));
                 return;
             }
 
             base.WndProc(ref m);
-        }
-
-        private void SendMouseMoveUp()
-        {
-            if (selectedHwnd == IntPtr.Zero)
-            {
-                MessageBox.Show("请先选择窗口。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-
-            ShowWindowAsync(selectedHwnd, SW_RESTORE);
-            SetForegroundWindow(selectedHwnd);
-
-            var input = new INPUT
-            {
-                type = INPUT_MOUSE,
-                U = new INPUTUNION
-                {
-                    mi = new MOUSEINPUT
-                    {
-                        dx = 0,
-                        dy = -100,
-                        mouseData = 0,
-                        dwFlags = MOUSEEVENTF_MOVE,
-                        time = 0,
-                        dwExtraInfo = IntPtr.Zero
-                    }
-                }
-            };
-
-            var sent = SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
-            if (sent == 0)
-            {
-                MessageBox.Show("发送输入失败。", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
         }
 
         private async Task StopDetectionAsync()
@@ -231,6 +216,7 @@ namespace YOLOForAim
                 {
                     latestCapturedFrame?.Dispose();
                     latestCapturedFrame = null;
+                    latestCapturedBounds = Rectangle.Empty;
                     latestCapturedFrameVersion = 0;
                 }
                 btnStartDetection.Enabled = true;
@@ -245,8 +231,8 @@ namespace YOLOForAim
             {
                 try
                 {
-                    Bitmap? frame = CaptureWindow(selectedHwnd, currentCenterRoiOnly, currentRoiSize);
-                    if (frame is null)
+                    CapturedFrame? capturedFrame = CaptureWindow(selectedHwnd, currentCenterRoiOnly, currentRoiSize);
+                    if (capturedFrame is null)
                     {
                         await Task.Delay(30, cancellationToken);
                         continue;
@@ -255,7 +241,8 @@ namespace YOLOForAim
                     lock (latestFrameLock)
                     {
                         latestCapturedFrame?.Dispose();
-                        latestCapturedFrame = frame;
+                        latestCapturedFrame = capturedFrame.Frame;
+                        latestCapturedBounds = capturedFrame.ScreenBounds;
                         latestCapturedFrameVersion++;
                     }
 
@@ -290,6 +277,7 @@ namespace YOLOForAim
                 try
                 {
                     Bitmap? frameToProcess = null;
+                    Rectangle frameBounds = Rectangle.Empty;
                     int currentVersion;
                     lock (latestFrameLock)
                     {
@@ -297,6 +285,7 @@ namespace YOLOForAim
                         if (latestCapturedFrame is not null && currentVersion != processedVersion)
                         {
                             frameToProcess = (Bitmap)latestCapturedFrame.Clone();
+                            frameBounds = latestCapturedBounds;
                             processedVersion = currentVersion;
                         }
                     }
@@ -310,6 +299,7 @@ namespace YOLOForAim
                     using (frameToProcess)
                     {
                         DetectionRunResult result = yoloDetector?.Detect(frameToProcess) ?? new DetectionRunResult(Array.Empty<DetectionResult>(), "检测器未初始化。");
+                        TryMoveMouseToNearestDetection(result.Detections, frameBounds);
                         processedFrameCounter++;
                         diagnosticsRefreshCounter++;
 
@@ -370,7 +360,7 @@ namespace YOLOForAim
             }
         }
 
-        private static Bitmap? CaptureWindow(IntPtr hwnd, bool centerRoiOnly, int roiSize)
+        private static CapturedFrame? CaptureWindow(IntPtr hwnd, bool centerRoiOnly, int roiSize)
         {
             if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var rect))
             {
@@ -401,7 +391,74 @@ namespace YOLOForAim
             var bitmap = new Bitmap(captureWidth, captureHeight);
             using var graphics = Graphics.FromImage(bitmap);
             graphics.CopyFromScreen(captureLeft, captureTop, 0, 0, new Size(captureWidth, captureHeight), CopyPixelOperation.SourceCopy);
-            return bitmap;
+            return new CapturedFrame(bitmap, new Rectangle(captureLeft, captureTop, captureWidth, captureHeight));
+        }
+
+        private void TryMoveMouseToNearestDetection(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds)
+        {
+            if (captureBounds.IsEmpty || detections.Count == 0 || !IsLeftMouseButtonDown())
+            {
+                return;
+            }
+
+            Point cursorPosition = Cursor.Position;
+            DetectionResult? nearestDetection = null;
+            double nearestDistanceSquared = double.MaxValue;
+
+            foreach (DetectionResult detection in detections)
+            {
+                double targetX = captureBounds.Left + detection.Box.X + (detection.Box.Width / 2d);
+                double targetY = captureBounds.Top + detection.Box.Y + (detection.Box.Height / 2d);
+                double deltaX = targetX - cursorPosition.X;
+                double deltaY = targetY - cursorPosition.Y;
+                double distanceSquared = (deltaX * deltaX) + (deltaY * deltaY);
+                if (distanceSquared < nearestDistanceSquared)
+                {
+                    nearestDistanceSquared = distanceSquared;
+                    nearestDetection = detection;
+                }
+            }
+
+            if (nearestDetection is null)
+            {
+                return;
+            }
+
+            int moveX = (int)Math.Round(captureBounds.Left + nearestDetection.Box.X + (nearestDetection.Box.Width / 2d) - cursorPosition.X);
+            int moveY = (int)Math.Round(captureBounds.Top + nearestDetection.Box.Y + (nearestDetection.Box.Height / 2d) - cursorPosition.Y);
+            if (moveX == 0 && moveY == 0)
+            {
+                return;
+            }
+
+            SendRelativeMouseMove(moveX, moveY);
+        }
+
+        private static bool IsLeftMouseButtonDown()
+        {
+            return (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+        }
+
+        private static void SendRelativeMouseMove(int dx, int dy)
+        {
+            var input = new INPUT
+            {
+                type = INPUT_MOUSE,
+                U = new INPUTUNION
+                {
+                    mi = new MOUSEINPUT
+                    {
+                        dx = dx,
+                        dy = dy,
+                        mouseData = 0,
+                        dwFlags = MOUSEEVENTF_MOVE,
+                        time = 0,
+                        dwExtraInfo = IntPtr.Zero
+                    }
+                }
+            };
+
+            SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
         }
 
         private void DrawDetections(Bitmap frame, IReadOnlyList<DetectionResult> detections)
@@ -450,6 +507,9 @@ namespace YOLOForAim
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
+        [DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int vKey);
+
         [StructLayout(LayoutKind.Sequential)]
         private struct INPUT
         {
@@ -483,6 +543,8 @@ namespace YOLOForAim
             public int Right;
             public int Bottom;
         }
+
+        private sealed record CapturedFrame(Bitmap Frame, Rectangle ScreenBounds);
         #endregion
     }
 

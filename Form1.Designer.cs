@@ -63,7 +63,7 @@
             this.btnSendMouseUp.Name = "btnSendMouseUp";
             this.btnSendMouseUp.Size = new System.Drawing.Size(180, 30);
             this.btnSendMouseUp.TabIndex = 1;
-            this.btnSendMouseUp.Text = "发送鼠标上移 100 (Z)";
+            this.btnSendMouseUp.Text = "切换检测开关 (Z)";
             this.btnSendMouseUp.UseVisualStyleBackColor = true;
             this.btnSendMouseUp.Click += new System.EventHandler(this.btnSendMouseUp_Click);
             // 
@@ -91,8 +91,7 @@
             // chkCenterRoi
             // 
             this.chkCenterRoi.AutoSize = true;
-            this.chkCenterRoi.Checked = true;
-            this.chkCenterRoi.CheckState = System.Windows.Forms.CheckState.Checked;
+            this.chkCenterRoi.Checked = false;
             this.chkCenterRoi.Location = new System.Drawing.Point(12, 82);
             this.chkCenterRoi.Name = "chkCenterRoi";
             this.chkCenterRoi.Size = new System.Drawing.Size(102, 19);
