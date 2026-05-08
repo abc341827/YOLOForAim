@@ -33,6 +33,7 @@ namespace YOLOForAim
         private float currentAimPointHeightRatio;
         private float currentAimDeadzonePixels;
         private float currentAimSmoothingFactor;
+        private float currentAimSpeedMultiplier;
         private float currentAimMaxStepPixels;
         private float currentAimLockSwitchDistancePixels;
         private int currentAimMaxMissedFrames;
@@ -50,6 +51,7 @@ namespace YOLOForAim
             numAimHeightPercent.Value = 20;
             numAimDeadzone.Value = 12;
             numAimSmoothing.Value = 35;
+            numAimSpeedMultiplier.Value = 100;
             numAimMaxStep.Value = 36;
             numAimSwitchDistance.Value = 140;
             numAimMaxMissedFrames.Value = 3;
@@ -118,6 +120,7 @@ namespace YOLOForAim
             currentAimPointHeightRatio = (float)numAimHeightPercent.Value / 100f;
             currentAimDeadzonePixels = (float)numAimDeadzone.Value;
             currentAimSmoothingFactor = (float)numAimSmoothing.Value / 100f;
+            currentAimSpeedMultiplier = (float)numAimSpeedMultiplier.Value / 100f;
             currentAimMaxStepPixels = (float)numAimMaxStep.Value;
             currentAimLockSwitchDistancePixels = (float)numAimSwitchDistance.Value;
             currentAimMaxMissedFrames = Math.Max(1, (int)numAimMaxMissedFrames.Value);
@@ -493,12 +496,13 @@ namespace YOLOForAim
                 return;
             }
 
-            float moveX = rawMoveX * currentAimSmoothingFactor;
-            float moveY = rawMoveY * currentAimSmoothingFactor;
+            float moveX = rawMoveX * currentAimSmoothingFactor * currentAimSpeedMultiplier;
+            float moveY = rawMoveY * currentAimSmoothingFactor * currentAimSpeedMultiplier;
             float smoothedDistance = MathF.Sqrt((moveX * moveX) + (moveY * moveY));
-            if (smoothedDistance > currentAimMaxStepPixels)
+            float currentMaxStep = currentAimMaxStepPixels * currentAimSpeedMultiplier;
+            if (smoothedDistance > currentMaxStep)
             {
-                float scale = currentAimMaxStepPixels / smoothedDistance;
+                float scale = currentMaxStep / smoothedDistance;
                 moveX *= scale;
                 moveY *= scale;
             }

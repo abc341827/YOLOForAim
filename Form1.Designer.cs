@@ -44,6 +44,8 @@
             this.numAimDeadzone = new System.Windows.Forms.NumericUpDown();
             this.lblAimSmoothing = new System.Windows.Forms.Label();
             this.numAimSmoothing = new System.Windows.Forms.NumericUpDown();
+            this.lblAimSpeedMultiplier = new System.Windows.Forms.Label();
+            this.numAimSpeedMultiplier = new System.Windows.Forms.NumericUpDown();
             this.lblAimMaxStep = new System.Windows.Forms.Label();
             this.numAimMaxStep = new System.Windows.Forms.NumericUpDown();
             this.lblAimSwitchDistance = new System.Windows.Forms.Label();
@@ -59,6 +61,7 @@
             ((System.ComponentModel.ISupportInitialize)(this.numAimHeightPercent)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimDeadzone)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimSmoothing)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimSpeedMultiplier)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimMaxStep)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimSwitchDistance)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimMaxMissedFrames)).BeginInit();
@@ -258,18 +261,49 @@
             0,
             0});
             // 
+            // lblAimSpeedMultiplier
+            // 
+            this.lblAimSpeedMultiplier.AutoSize = true;
+            this.lblAimSpeedMultiplier.Location = new System.Drawing.Point(483, 110);
+            this.lblAimSpeedMultiplier.Name = "lblAimSpeedMultiplier";
+            this.lblAimSpeedMultiplier.Size = new System.Drawing.Size(83, 15);
+            this.lblAimSpeedMultiplier.TabIndex = 15;
+            this.lblAimSpeedMultiplier.Text = "速度倍率(%)";
+            // 
+            // numAimSpeedMultiplier
+            // 
+            this.numAimSpeedMultiplier.Location = new System.Drawing.Point(572, 108);
+            this.numAimSpeedMultiplier.Maximum = new decimal(new int[] {
+            500,
+            0,
+            0,
+            0});
+            this.numAimSpeedMultiplier.Minimum = new decimal(new int[] {
+            10,
+            0,
+            0,
+            0});
+            this.numAimSpeedMultiplier.Name = "numAimSpeedMultiplier";
+            this.numAimSpeedMultiplier.Size = new System.Drawing.Size(56, 23);
+            this.numAimSpeedMultiplier.TabIndex = 16;
+            this.numAimSpeedMultiplier.Value = new decimal(new int[] {
+            100,
+            0,
+            0,
+            0});
+            // 
             // lblAimMaxStep
             // 
             this.lblAimMaxStep.AutoSize = true;
-            this.lblAimMaxStep.Location = new System.Drawing.Point(483, 110);
+            this.lblAimMaxStep.Location = new System.Drawing.Point(640, 110);
             this.lblAimMaxStep.Name = "lblAimMaxStep";
             this.lblAimMaxStep.Size = new System.Drawing.Size(71, 15);
-            this.lblAimMaxStep.TabIndex = 15;
+            this.lblAimMaxStep.TabIndex = 17;
             this.lblAimMaxStep.Text = "单次上限";
             // 
             // numAimMaxStep
             // 
-            this.numAimMaxStep.Location = new System.Drawing.Point(560, 108);
+            this.numAimMaxStep.Location = new System.Drawing.Point(717, 108);
             this.numAimMaxStep.Minimum = new decimal(new int[] {
             1,
             0,
@@ -277,7 +311,7 @@
             0});
             this.numAimMaxStep.Name = "numAimMaxStep";
             this.numAimMaxStep.Size = new System.Drawing.Size(56, 23);
-            this.numAimMaxStep.TabIndex = 16;
+            this.numAimMaxStep.TabIndex = 18;
             this.numAimMaxStep.Value = new decimal(new int[] {
             36,
             0,
@@ -290,7 +324,7 @@
             this.lblAimSwitchDistance.Location = new System.Drawing.Point(12, 139);
             this.lblAimSwitchDistance.Name = "lblAimSwitchDistance";
             this.lblAimSwitchDistance.Size = new System.Drawing.Size(95, 15);
-            this.lblAimSwitchDistance.TabIndex = 17;
+            this.lblAimSwitchDistance.TabIndex = 19;
             this.lblAimSwitchDistance.Text = "切换距离阈值";
             // 
             // numAimSwitchDistance
@@ -308,7 +342,7 @@
             0});
             this.numAimSwitchDistance.Name = "numAimSwitchDistance";
             this.numAimSwitchDistance.Size = new System.Drawing.Size(56, 23);
-            this.numAimSwitchDistance.TabIndex = 18;
+            this.numAimSwitchDistance.TabIndex = 20;
             this.numAimSwitchDistance.Value = new decimal(new int[] {
             140,
             0,
@@ -321,7 +355,7 @@
             this.lblAimMaxMissedFrames.Location = new System.Drawing.Point(181, 139);
             this.lblAimMaxMissedFrames.Name = "lblAimMaxMissedFrames";
             this.lblAimMaxMissedFrames.Size = new System.Drawing.Size(71, 15);
-            this.lblAimMaxMissedFrames.TabIndex = 19;
+            this.lblAimMaxMissedFrames.TabIndex = 21;
             this.lblAimMaxMissedFrames.Text = "容忍丢帧";
             // 
             // numAimMaxMissedFrames
@@ -334,7 +368,7 @@
             0});
             this.numAimMaxMissedFrames.Name = "numAimMaxMissedFrames";
             this.numAimMaxMissedFrames.Size = new System.Drawing.Size(56, 23);
-            this.numAimMaxMissedFrames.TabIndex = 20;
+            this.numAimMaxMissedFrames.TabIndex = 22;
             this.numAimMaxMissedFrames.Value = new decimal(new int[] {
             3,
             0,
@@ -386,6 +420,8 @@
             Controls.Add(this.txtDiagnostics);
             Controls.Add(this.pictureBoxPreview);
             Controls.Add(this.lblStatus);
+            Controls.Add(this.numAimSpeedMultiplier);
+            Controls.Add(this.lblAimSpeedMultiplier);
             Controls.Add(this.numAimMaxMissedFrames);
             Controls.Add(this.lblAimMaxMissedFrames);
             Controls.Add(this.numAimSwitchDistance);
@@ -415,6 +451,7 @@
             ((System.ComponentModel.ISupportInitialize)(this.numAimHeightPercent)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimDeadzone)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimSmoothing)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimSpeedMultiplier)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimMaxStep)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimSwitchDistance)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimMaxMissedFrames)).EndInit();
@@ -438,6 +475,8 @@
         private System.Windows.Forms.NumericUpDown numAimDeadzone;
         private System.Windows.Forms.Label lblAimSmoothing;
         private System.Windows.Forms.NumericUpDown numAimSmoothing;
+        private System.Windows.Forms.Label lblAimSpeedMultiplier;
+        private System.Windows.Forms.NumericUpDown numAimSpeedMultiplier;
         private System.Windows.Forms.Label lblAimMaxStep;
         private System.Windows.Forms.NumericUpDown numAimMaxStep;
         private System.Windows.Forms.Label lblAimSwitchDistance;
