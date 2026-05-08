@@ -14,6 +14,9 @@ namespace YOLOForAim
         private const uint MOD_NONE = 0x0000;
         private const uint VK_Z = 0x5A;
         private const int VK_LBUTTON = 0x01;
+        private const int DefaultAimAssistFireGracePeriodMs = 120;
+        private const int DefaultAimTargetTrackingBlendPercent = 35;
+        private const int DefaultAimCloseRangeSlowdownPixels = 64;
         private static readonly string UiSettingsFilePath = Path.Combine(AppContext.BaseDirectory, "ui-settings.json");
 
         private IntPtr selectedHwnd = IntPtr.Zero;
@@ -39,8 +42,14 @@ namespace YOLOForAim
         private float currentAimMaxStepPixels;
         private float currentAimLockSwitchDistancePixels;
         private int currentAimMaxMissedFrames;
+        private int currentAimAssistFireGracePeriodMs;
+        private float currentAimTargetTrackingBlend;
+        private float currentAimCloseRangeSlowdownPixels;
         private PointF? lockedTargetScreenPoint;
+        private PointF? smoothedTargetScreenPoint;
         private int missedTargetFrames;
+        private long lastFireActivityTick;
+        private bool wasLeftMouseButtonDown;
 
         public Form1()
         {
@@ -57,6 +66,9 @@ namespace YOLOForAim
             numAimMaxStep.Value = 36;
             numAimSwitchDistance.Value = 140;
             numAimMaxMissedFrames.Value = 3;
+            numAimFireGracePeriod.Value = DefaultAimAssistFireGracePeriodMs;
+            numAimTrackingBlend.Value = DefaultAimTargetTrackingBlendPercent;
+            numAimCloseRangeSlowdown.Value = DefaultAimCloseRangeSlowdownPixels;
             numScoreThreshold.Value = 35;
             LoadUiSettings();
         }
@@ -117,7 +129,10 @@ namespace YOLOForAim
             diagnosticsRefreshCounter = 0;
             processedFrameCounter = 0;
             lockedTargetScreenPoint = null;
+            smoothedTargetScreenPoint = null;
             missedTargetFrames = 0;
+            lastFireActivityTick = 0;
+            wasLeftMouseButtonDown = false;
             currentCenterRoiOnly = chkCenterRoi.Checked;
             currentRoiSize = (int)numRoiSize.Value;
             currentPreviewInterval = Math.Max(1, (int)numPreviewInterval.Value);
@@ -128,6 +143,9 @@ namespace YOLOForAim
             currentAimMaxStepPixels = (float)numAimMaxStep.Value;
             currentAimLockSwitchDistancePixels = (float)numAimSwitchDistance.Value;
             currentAimMaxMissedFrames = Math.Max(1, (int)numAimMaxMissedFrames.Value);
+            currentAimAssistFireGracePeriodMs = (int)numAimFireGracePeriod.Value;
+            currentAimTargetTrackingBlend = (float)numAimTrackingBlend.Value / 100f;
+            currentAimCloseRangeSlowdownPixels = (float)numAimCloseRangeSlowdown.Value;
             captureTask = Task.Run(() => RunCaptureLoopAsync(detectionCancellationTokenSource.Token), detectionCancellationTokenSource.Token);
             inferenceTask = Task.Run(() => RunInferenceLoopAsync(detectionCancellationTokenSource.Token), detectionCancellationTokenSource.Token);
 
@@ -250,7 +268,10 @@ namespace YOLOForAim
                     latestCapturedFrameVersion = 0;
                 }
                 lockedTargetScreenPoint = null;
+                smoothedTargetScreenPoint = null;
                 missedTargetFrames = 0;
+                lastFireActivityTick = 0;
+                wasLeftMouseButtonDown = false;
                 btnStartDetection.Enabled = true;
                 btnStopDetection.Enabled = false;
                 lblStatus.Text = "检测已停止。";
@@ -428,9 +449,10 @@ namespace YOLOForAim
 
         private void TryMoveMouseToNearestDetection(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds)
         {
-            if (captureBounds.IsEmpty || !IsLeftMouseButtonDown())
+            if (captureBounds.IsEmpty || !IsAimAssistActive())
             {
                 lockedTargetScreenPoint = null;
+                smoothedTargetScreenPoint = null;
                 missedTargetFrames = 0;
                 return;
             }
@@ -441,11 +463,13 @@ namespace YOLOForAim
                 if (missedTargetFrames >= currentAimMaxMissedFrames)
                 {
                     lockedTargetScreenPoint = null;
+                    smoothedTargetScreenPoint = null;
                 }
                 return;
             }
 
             Point cursorPosition = Cursor.Position;
+            PointF? previousLockedTargetScreenPoint = lockedTargetScreenPoint;
             DetectionResult? nearestDetection = null;
             PointF nearestTargetPoint = PointF.Empty;
             double nearestDistanceSquared = double.MaxValue;
@@ -493,8 +517,21 @@ namespace YOLOForAim
             lockedTargetScreenPoint = nearestTargetPoint;
             missedTargetFrames = 0;
 
-            float rawMoveX = nearestTargetPoint.X - cursorPosition.X;
-            float rawMoveY = nearestTargetPoint.Y - cursorPosition.Y;
+            if (previousLockedTargetScreenPoint is null ||
+                smoothedTargetScreenPoint is null ||
+                GetDistanceSquared(previousLockedTargetScreenPoint.Value, nearestTargetPoint) >
+                (currentAimLockSwitchDistancePixels * currentAimLockSwitchDistancePixels))
+            {
+                smoothedTargetScreenPoint = nearestTargetPoint;
+            }
+            else
+            {
+                smoothedTargetScreenPoint = LerpPoint(smoothedTargetScreenPoint.Value, nearestTargetPoint, currentAimTargetTrackingBlend);
+            }
+
+            PointF targetPointForMove = smoothedTargetScreenPoint.Value;
+            float rawMoveX = targetPointForMove.X - cursorPosition.X;
+            float rawMoveY = targetPointForMove.Y - cursorPosition.Y;
             float distanceToAimPoint = MathF.Sqrt((rawMoveX * rawMoveX) + (rawMoveY * rawMoveY));
             if (distanceToAimPoint <= currentAimDeadzonePixels)
             {
@@ -503,6 +540,9 @@ namespace YOLOForAim
 
             float moveX = rawMoveX * currentAimSmoothingFactor * currentAimSpeedMultiplier;
             float moveY = rawMoveY * currentAimSmoothingFactor * currentAimSpeedMultiplier;
+            float distanceScale = Math.Clamp((distanceToAimPoint - currentAimDeadzonePixels) / currentAimCloseRangeSlowdownPixels, 0.2f, 1f);
+            moveX *= distanceScale;
+            moveY *= distanceScale;
             float smoothedDistance = MathF.Sqrt((moveX * moveX) + (moveY * moveY));
             float currentMaxStep = currentAimMaxStepPixels * currentAimSpeedMultiplier;
             if (smoothedDistance > currentMaxStep)
@@ -532,6 +572,34 @@ namespace YOLOForAim
         private static bool IsLeftMouseButtonDown()
         {
             return (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+        }
+
+        private bool IsAimAssistActive()
+        {
+            bool isLeftMouseButtonDown = IsLeftMouseButtonDown();
+            long now = Environment.TickCount64;
+
+            if (isLeftMouseButtonDown || wasLeftMouseButtonDown)
+            {
+                lastFireActivityTick = now;
+            }
+
+            wasLeftMouseButtonDown = isLeftMouseButtonDown;
+            return isLeftMouseButtonDown || (now - lastFireActivityTick) <= currentAimAssistFireGracePeriodMs;
+        }
+
+        private static float GetDistanceSquared(PointF a, PointF b)
+        {
+            float deltaX = a.X - b.X;
+            float deltaY = a.Y - b.Y;
+            return (deltaX * deltaX) + (deltaY * deltaY);
+        }
+
+        private static PointF LerpPoint(PointF from, PointF to, float amount)
+        {
+            return new PointF(
+                from.X + ((to.X - from.X) * amount),
+                from.Y + ((to.Y - from.Y) * amount));
         }
 
         private static void SendRelativeMouseMove(int dx, int dy)
@@ -584,6 +652,9 @@ namespace YOLOForAim
                 SetNumericValue(numAimMaxStep, settings.AimMaxStep);
                 SetNumericValue(numAimSwitchDistance, settings.AimSwitchDistance);
                 SetNumericValue(numAimMaxMissedFrames, settings.AimMaxMissedFrames);
+                SetNumericValue(numAimFireGracePeriod, settings.AimFireGracePeriodMs);
+                SetNumericValue(numAimTrackingBlend, settings.AimTrackingBlendPercent);
+                SetNumericValue(numAimCloseRangeSlowdown, settings.AimCloseRangeSlowdownPixels);
             }
             catch
             {
@@ -606,7 +677,10 @@ namespace YOLOForAim
                     (int)numAimSpeedMultiplier.Value,
                     (int)numAimMaxStep.Value,
                     (int)numAimSwitchDistance.Value,
-                    (int)numAimMaxMissedFrames.Value);
+                    (int)numAimMaxMissedFrames.Value,
+                    (int)numAimFireGracePeriod.Value,
+                    (int)numAimTrackingBlend.Value,
+                    (int)numAimCloseRangeSlowdown.Value);
 
                 string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(UiSettingsFilePath, json);
@@ -718,7 +792,10 @@ namespace YOLOForAim
             int AimSpeedMultiplierPercent,
             int AimMaxStep,
             int AimSwitchDistance,
-            int AimMaxMissedFrames);
+            int AimMaxMissedFrames,
+            int AimFireGracePeriodMs = DefaultAimAssistFireGracePeriodMs,
+            int AimTrackingBlendPercent = DefaultAimTargetTrackingBlendPercent,
+            int AimCloseRangeSlowdownPixels = DefaultAimCloseRangeSlowdownPixels);
         #endregion
     }
 
