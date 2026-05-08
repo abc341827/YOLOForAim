@@ -20,6 +20,7 @@ namespace YOLOForAim
         private const int DefaultAimCloseRangeSlowdownPixels = 64;
         private const int DefaultAimMoveCooldownMs = 10;
         private const int DefaultAimFeedbackFrameDelay = 2;
+        private const int DefaultAutoClickIntervalMs = 310;
         private const float AimPendingCompensationDecay = 0.45f;
         private const float AimPendingCompensationFactor = 0.75f;
         private static readonly string UiSettingsFilePath = Path.Combine(AppContext.BaseDirectory, "ui-settings.json");
@@ -68,6 +69,7 @@ namespace YOLOForAim
         private long lastAimMoveTick;
         private int lastAimMoveFrameVersion = -1;
         private int lastPendingCompensationFrameVersion = -1;
+        private long lastAutoClickTick;
         private PointF pendingAimCompensation;
 
         public Form1()
@@ -585,6 +587,8 @@ namespace YOLOForAim
                 return;
             }
 
+            TrySendAutoClickWhileHoldingLeftButton();
+
             if (detections.Count == 0)
             {
                 missedTargetFrames++;
@@ -681,6 +685,7 @@ namespace YOLOForAim
             lastAimMoveTick = 0;
             lastAimMoveFrameVersion = -1;
             lastPendingCompensationFrameVersion = -1;
+            lastAutoClickTick = 0;
             pendingAimCompensation = PointF.Empty;
         }
 
@@ -821,6 +826,30 @@ namespace YOLOForAim
             return isLeftMouseButtonDown || (now - lastFireActivityTick) <= currentAimAssistFireGracePeriodMs;
         }
 
+        private void TrySendAutoClickWhileHoldingLeftButton()
+        {
+            if (!IsLeftMouseButtonDown())
+            {
+                lastAutoClickTick = 0;
+                return;
+            }
+
+            long now = Environment.TickCount64;
+            if (lastAutoClickTick == 0)
+            {
+                lastAutoClickTick = now;
+                return;
+            }
+
+            if ((now - lastAutoClickTick) < DefaultAutoClickIntervalMs)
+            {
+                return;
+            }
+
+            SendLeftMouseClick();
+            lastAutoClickTick = now;
+        }
+
         private static float GetDistanceSquared(PointF a, PointF b)
         {
             float deltaX = a.X - b.X;
@@ -855,6 +884,47 @@ namespace YOLOForAim
             };
 
             SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
+        }
+
+        private static void SendLeftMouseClick()
+        {
+            INPUT[] inputs =
+            [
+                new INPUT
+                {
+                    type = INPUT_MOUSE,
+                    U = new INPUTUNION
+                    {
+                        mi = new MOUSEINPUT
+                        {
+                            dx = 0,
+                            dy = 0,
+                            mouseData = 0,
+                            dwFlags = MOUSEEVENTF_LEFTDOWN,
+                            time = 0,
+                            dwExtraInfo = IntPtr.Zero
+                        }
+                    }
+                },
+                new INPUT
+                {
+                    type = INPUT_MOUSE,
+                    U = new INPUTUNION
+                    {
+                        mi = new MOUSEINPUT
+                        {
+                            dx = 0,
+                            dy = 0,
+                            mouseData = 0,
+                            dwFlags = MOUSEEVENTF_LEFTUP,
+                            time = 0,
+                            dwExtraInfo = IntPtr.Zero
+                        }
+                    }
+                }
+            ];
+
+            SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
         }
 
         private void LoadUiSettings()
@@ -959,6 +1029,8 @@ namespace YOLOForAim
         private const int SW_RESTORE = 9;
         private const uint INPUT_MOUSE = 0;
         private const uint MOUSEEVENTF_MOVE = 0x0001;
+        private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+        private const uint MOUSEEVENTF_LEFTUP = 0x0004;
 
         [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
