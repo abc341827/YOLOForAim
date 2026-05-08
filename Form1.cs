@@ -163,6 +163,11 @@ namespace YOLOForAim
             currentAimCloseRangeSlowdownPixels = (float)numAimCloseRangeSlowdown.Value;
             currentAimMoveCooldownMs = (int)numAimMoveCooldown.Value;
             currentAimFeedbackFrameDelay = Math.Max(0, (int)numAimFeedbackFrameDelay.Value);
+            ClearOverlayState();
+            EnsureDetectionOverlay();
+            overlayRefreshTimer.Start();
+            ShowWindowAsync(selectedHwnd, SW_RESTORE);
+            SetForegroundWindow(selectedHwnd);
             captureTask = Task.Run(() => RunCaptureLoopAsync(detectionCancellationTokenSource.Token), detectionCancellationTokenSource.Token);
             inferenceTask = Task.Run(() => RunInferenceLoopAsync(detectionCancellationTokenSource.Token), detectionCancellationTokenSource.Token);
 
@@ -287,6 +292,9 @@ namespace YOLOForAim
                     latestCapturedBounds = Rectangle.Empty;
                     latestCapturedFrameVersion = 0;
                 }
+                overlayRefreshTimer.Stop();
+                ClearOverlayState();
+                detectionOverlay?.HideOverlay();
                 ResetAimRuntimeState();
                 btnStartDetection.Enabled = true;
                 btnStopDetection.Enabled = false;
@@ -1290,8 +1298,7 @@ namespace YOLOForAim
             if (hwnd == IntPtr.Zero ||
                 !GetWindowRect(hwnd, out var rect) ||
                 !IsWindowVisible(hwnd) ||
-                IsIconic(hwnd) ||
-                GetForegroundWindow() != hwnd)
+                IsIconic(hwnd))
             {
                 HideOverlay();
                 return;
@@ -1311,6 +1318,8 @@ namespace YOLOForAim
             {
                 Show();
             }
+
+            SetWindowPos(Handle, HWND_TOPMOST, overlayBounds.Left, overlayBounds.Top, overlayBounds.Width, overlayBounds.Height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
 
             Invalidate();
         }
@@ -1371,8 +1380,13 @@ namespace YOLOForAim
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool IsIconic(IntPtr hWnd);
 
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetForegroundWindow();
+        private static readonly IntPtr HWND_TOPMOST = new(-1);
+        private const uint SWP_NOACTIVATE = 0x0010;
+        private const uint SWP_SHOWWINDOW = 0x0040;
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct RECT
