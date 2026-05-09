@@ -31,6 +31,8 @@ namespace YOLOForAim
         private const int StableTargetSizeHoldMs = 180;
         private const float StableTargetSizeUpdateCenterOffsetPixels = 28f;
         private const float StableTargetSizeBlend = 0.22f;
+        private const int AimTargetSwitchHoldMs = 120;
+        private const float AimSameTargetOverlapThreshold = 0.12f;
         private static readonly string UiSettingsFilePath = Path.Combine(AppContext.BaseDirectory, "ui-settings.json");
 
         private IntPtr selectedHwnd = IntPtr.Zero;
@@ -83,6 +85,7 @@ namespace YOLOForAim
         private int stabilizedLockedDetectionFrames;
         private bool hasAppliedInitialLockPull;
         private long stableTargetSizeHoldUntilTick;
+        private long pendingTargetSwitchTick;
 
         public Form1()
         {
@@ -655,14 +658,25 @@ namespace YOLOForAim
             }
 
             float distanceFromLockedTarget = MathF.Sqrt((float)nearestDetection.DistanceSquared);
+            long now = Environment.TickCount64;
             if (lockedTargetScreenPoint is not null && distanceFromLockedTarget > currentAimLockSwitchDistancePixels)
             {
-                missedTargetFrames++;
-                if (missedTargetFrames < currentAimMaxMissedFrames)
+                if (!IsLikelySameLockedTarget(nearestDetection.Detection, captureBounds))
                 {
-                    return;
+                    if (pendingTargetSwitchTick <= 0)
+                    {
+                        pendingTargetSwitchTick = now;
+                        return;
+                    }
+
+                    if ((now - pendingTargetSwitchTick) < AimTargetSwitchHoldMs)
+                    {
+                        return;
+                    }
                 }
             }
+
+            pendingTargetSwitchTick = 0;
 
             bool resetHeightTracking = previousLockedTargetScreenPoint is null ||
                 smoothedTargetScreenPoint is null ||
@@ -697,7 +711,6 @@ namespace YOLOForAim
                 return;
             }
 
-            long now = Environment.TickCount64;
             if (!CanSendAimMove(now, processedFrameVersion))
             {
                 return;
@@ -759,6 +772,7 @@ namespace YOLOForAim
             stabilizedLockedDetectionFrames = 0;
             hasAppliedInitialLockPull = false;
             stableTargetSizeHoldUntilTick = 0;
+            pendingTargetSwitchTick = 0;
         }
 
         private DetectionResult GetStabilizedDetection(DetectionResult detection, Rectangle captureBounds, bool resetTracking)
@@ -832,6 +846,25 @@ namespace YOLOForAim
             PointF currentCenter = GetBoxCenter(currentDetection.Box);
             return GetDistanceSquared(previousCenter, currentCenter) <=
                 (StableTargetPositionTolerancePixels * StableTargetPositionTolerancePixels);
+        }
+
+        private bool IsLikelySameLockedTarget(DetectionResult detection, Rectangle captureBounds)
+        {
+            if (stabilizedLockedDetection is null || detection.ClassId != stabilizedLockedDetection.ClassId)
+            {
+                return false;
+            }
+
+            if (CalculateIou(stabilizedLockedDetection.Box, detection.Box) >= AimSameTargetOverlapThreshold)
+            {
+                return true;
+            }
+
+            PointF lockedPoint = smoothedTargetScreenPoint
+                ?? lockedTargetScreenPoint
+                ?? GetAimPoint(captureBounds, stabilizedLockedDetection);
+            RectangleF expandedBounds = GetExpandedDetectionBounds(captureBounds, detection, currentAimDeadzonePixels + 8f);
+            return expandedBounds.Contains(lockedPoint);
         }
 
         private float GetEffectiveAimHeight(DetectionResult detection, bool resetHeightTracking)
@@ -990,6 +1023,25 @@ namespace YOLOForAim
                 center.Y - (size.Height / 2f),
                 size.Width,
                 size.Height);
+        }
+
+        private static float CalculateIou(RectangleF a, RectangleF b)
+        {
+            float left = Math.Max(a.Left, b.Left);
+            float top = Math.Max(a.Top, b.Top);
+            float right = Math.Min(a.Right, b.Right);
+            float bottom = Math.Min(a.Bottom, b.Bottom);
+
+            float intersectionWidth = Math.Max(0, right - left);
+            float intersectionHeight = Math.Max(0, bottom - top);
+            float intersectionArea = intersectionWidth * intersectionHeight;
+            if (intersectionArea <= 0)
+            {
+                return 0f;
+            }
+
+            float unionArea = (a.Width * a.Height) + (b.Width * b.Height) - intersectionArea;
+            return unionArea <= 0 ? 0f : intersectionArea / unionArea;
         }
 
         private static PointF LerpPoint(PointF from, PointF to, float amount)
