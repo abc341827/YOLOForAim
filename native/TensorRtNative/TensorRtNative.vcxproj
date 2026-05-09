@@ -35,6 +35,13 @@
     <PlatformToolset Condition="'$(PlatformToolset)'=='' and Exists('$(VCTargetsPath)\Platforms\$(Platform)\PlatformToolsets\v142\Toolset.props')">v142</PlatformToolset>
     <PlatformToolset Condition="'$(PlatformToolset)'=='' and Exists('$(VCTargetsPath)\Platforms\$(Platform)\PlatformToolsets\v141\Toolset.props')">v141</PlatformToolset>
   </PropertyGroup>
+  <PropertyGroup>
+    <TensorRtInferLib Condition="Exists('$(ProjectDir)nvinfer_10.lib')">nvinfer_10.lib</TensorRtInferLib>
+    <TensorRtInferLib Condition="'$(TensorRtInferLib)'==''">nvinfer.lib</TensorRtInferLib>
+    <TensorRtPluginLib Condition="Exists('$(ProjectDir)nvinfer_plugin_10.lib')">nvinfer_plugin_10.lib</TensorRtPluginLib>
+    <TensorRtPluginLib Condition="'$(TensorRtPluginLib)'=='' and Exists('$(ProjectDir)nvinfer_plugin.lib')">nvinfer_plugin.lib</TensorRtPluginLib>
+    <TensorRtPluginLib Condition="'$(TensorRtPluginLib)'=='' and Exists('$(ProjectDir)nvinfer_plugin_10.lib')">nvinfer_plugin_10.lib</TensorRtPluginLib>
+  </PropertyGroup>
   <ImportGroup Label="ExtensionSettings" />
   <ImportGroup Label="Shared" />
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -61,7 +68,7 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(ProjectDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>nvinfer.lib;nvinfer_plugin.lib;cudart.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(TensorRtInferLib);$(TensorRtPluginLib);cudart.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -81,7 +88,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(ProjectDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>nvinfer.lib;nvinfer_plugin.lib;cudart.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(TensorRtInferLib);$(TensorRtPluginLib);cudart.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

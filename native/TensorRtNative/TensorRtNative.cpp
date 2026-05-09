@@ -57,7 +57,7 @@ namespace
         {
             if (value != nullptr)
             {
-                value->destroy();
+                delete value;
             }
         }
     };
