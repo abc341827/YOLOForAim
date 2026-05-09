@@ -20,6 +20,7 @@ namespace YOLOForAim
         private const int DefaultAimCloseRangeSlowdownPixels = 64;
         private const int DefaultAimMoveCooldownMs = 10;
         private const int DefaultAimFeedbackFrameDelay = 2;
+        private const int DefaultAimStopInsideBoxAreaPercent = 80;
         private const float AimHeightHighConfidenceThreshold = 0.65f;
         private const float AimHeightHighConfidenceBlend = 0.45f;
         private const float AimHeightLowConfidenceBlend = 0.12f;
@@ -76,6 +77,7 @@ namespace YOLOForAim
         private float currentAimCloseRangeSlowdownPixels;
         private int currentAimMoveCooldownMs;
         private int currentAimFeedbackFrameDelay;
+        private float currentAimStopInsideBoxAreaRatio;
         private PointF? lockedTargetScreenPoint;
         private PointF? smoothedTargetScreenPoint;
         private int missedTargetFrames;
@@ -119,6 +121,7 @@ namespace YOLOForAim
             numAimCloseRangeSlowdown.Value = DefaultAimCloseRangeSlowdownPixels;
             numAimMoveCooldown.Value = DefaultAimMoveCooldownMs;
             numAimFeedbackFrameDelay.Value = DefaultAimFeedbackFrameDelay;
+            numAimStopInsideBoxArea.Value = DefaultAimStopInsideBoxAreaPercent;
             numScoreThreshold.Value = 35;
             LoadUiSettings();
         }
@@ -198,6 +201,7 @@ namespace YOLOForAim
             currentAimCloseRangeSlowdownPixels = (float)numAimCloseRangeSlowdown.Value;
             currentAimMoveCooldownMs = (int)numAimMoveCooldown.Value;
             currentAimFeedbackFrameDelay = Math.Max(0, (int)numAimFeedbackFrameDelay.Value);
+            currentAimStopInsideBoxAreaRatio = (float)numAimStopInsideBoxArea.Value / 100f;
             txtDiagnostics.Text = "YOLO FPS: 0.0";
             ClearOverlayState();
             EnsureDetectionOverlay();
@@ -724,7 +728,7 @@ namespace YOLOForAim
             float rawMoveX = targetPointForMove.X - aimReferencePoint.X;
             float rawMoveY = targetPointForMove.Y - aimReferencePoint.Y;
             float distanceToAimPoint = MathF.Sqrt((rawMoveX * rawMoveX) + (rawMoveY * rawMoveY));
-            if (IsAimReferenceInsideStableBox(captureBounds, stabilizedDetection, aimReferencePoint, AimStopInsideBoxAreaRatio))
+            if (IsAimReferenceInsideStableBox(captureBounds, stabilizedDetection, aimReferencePoint, currentAimStopInsideBoxAreaRatio))
             {
                 return;
             }
@@ -1172,6 +1176,7 @@ namespace YOLOForAim
                 SetNumericValue(numAimCloseRangeSlowdown, settings.AimCloseRangeSlowdownPixels);
                 SetNumericValue(numAimMoveCooldown, settings.AimMoveCooldownMs);
                 SetNumericValue(numAimFeedbackFrameDelay, settings.AimFeedbackFrameDelay);
+                SetNumericValue(numAimStopInsideBoxArea, settings.AimStopInsideBoxAreaPercent);
             }
             catch
             {
@@ -1200,7 +1205,8 @@ namespace YOLOForAim
                     (int)numAimTrackingBlend.Value,
                     (int)numAimCloseRangeSlowdown.Value,
                     (int)numAimMoveCooldown.Value,
-                    (int)numAimFeedbackFrameDelay.Value);
+                    (int)numAimFeedbackFrameDelay.Value,
+                    (int)numAimStopInsideBoxArea.Value);
 
                 string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(UiSettingsFilePath, json);
@@ -1318,7 +1324,8 @@ namespace YOLOForAim
             int AimTrackingBlendPercent = DefaultAimTargetTrackingBlendPercent,
             int AimCloseRangeSlowdownPixels = DefaultAimCloseRangeSlowdownPixels,
             int AimMoveCooldownMs = DefaultAimMoveCooldownMs,
-            int AimFeedbackFrameDelay = DefaultAimFeedbackFrameDelay);
+            int AimFeedbackFrameDelay = DefaultAimFeedbackFrameDelay,
+            int AimStopInsideBoxAreaPercent = DefaultAimStopInsideBoxAreaPercent);
 
         private sealed record TargetCandidate(DetectionResult Detection, PointF TargetPoint, double DistanceSquared);
         #endregion

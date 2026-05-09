@@ -65,6 +65,8 @@
             this.numAimMoveCooldown = new System.Windows.Forms.NumericUpDown();
             this.lblAimFeedbackFrameDelay = new System.Windows.Forms.Label();
             this.numAimFeedbackFrameDelay = new System.Windows.Forms.NumericUpDown();
+            this.lblAimStopInsideBoxArea = new System.Windows.Forms.Label();
+            this.numAimStopInsideBoxArea = new System.Windows.Forms.NumericUpDown();
             this.chkOverlayEnabled = new System.Windows.Forms.CheckBox();
             this.lblParameterHint = new System.Windows.Forms.Label();
             this.lblHandle = new System.Windows.Forms.Label();
@@ -86,6 +88,7 @@
             ((System.ComponentModel.ISupportInitialize)(this.numAimCloseRangeSlowdown)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimMoveCooldown)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimFeedbackFrameDelay)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimStopInsideBoxArea)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBoxPreview)).BeginInit();
             this.SuspendLayout();
             // 
@@ -592,15 +595,48 @@
             0});
             this.toolTipDescriptions.SetToolTip(this.numAimFeedbackFrameDelay, "建议 1~3。截图频率高于游戏刷新率时，这个参数通常很有用。");
             // 
+            // lblAimStopInsideBoxArea
+            // 
+            this.lblAimStopInsideBoxArea.AutoSize = true;
+            this.lblAimStopInsideBoxArea.Location = new System.Drawing.Point(585, 168);
+            this.lblAimStopInsideBoxArea.Name = "lblAimStopInsideBoxArea";
+            this.lblAimStopInsideBoxArea.Size = new System.Drawing.Size(115, 15);
+            this.lblAimStopInsideBoxArea.TabIndex = 33;
+            this.lblAimStopInsideBoxArea.Text = "框内停止范围(%)";
+            this.toolTipDescriptions.SetToolTip(this.lblAimStopInsideBoxArea, "当准心进入检测框内部多大比例的区域后停止继续拉动。值越大越贴目标，值越小越稳。");
+            // 
+            // numAimStopInsideBoxArea
+            // 
+            this.numAimStopInsideBoxArea.Location = new System.Drawing.Point(706, 166);
+            this.numAimStopInsideBoxArea.Maximum = new decimal(new int[] {
+            100,
+            0,
+            0,
+            0});
+            this.numAimStopInsideBoxArea.Minimum = new decimal(new int[] {
+            10,
+            0,
+            0,
+            0});
+            this.numAimStopInsideBoxArea.Name = "numAimStopInsideBoxArea";
+            this.numAimStopInsideBoxArea.Size = new System.Drawing.Size(56, 23);
+            this.numAimStopInsideBoxArea.TabIndex = 34;
+            this.numAimStopInsideBoxArea.Value = new decimal(new int[] {
+            80,
+            0,
+            0,
+            0});
+            this.toolTipDescriptions.SetToolTip(this.numAimStopInsideBoxArea, "建议 70~90。80 表示准心进入检测框约 80% 的内部区域后停止拉动。");
+            // 
             // chkOverlayEnabled
             // 
             this.chkOverlayEnabled.AutoSize = true;
             this.chkOverlayEnabled.Checked = true;
             this.chkOverlayEnabled.CheckState = System.Windows.Forms.CheckState.Checked;
-            this.chkOverlayEnabled.Location = new System.Drawing.Point(585, 168);
+            this.chkOverlayEnabled.Location = new System.Drawing.Point(12, 196);
             this.chkOverlayEnabled.Name = "chkOverlayEnabled";
             this.chkOverlayEnabled.Size = new System.Drawing.Size(146, 19);
-            this.chkOverlayEnabled.TabIndex = 33;
+            this.chkOverlayEnabled.TabIndex = 35;
             this.chkOverlayEnabled.Text = "启用窗口叠加框绘制";
             this.toolTipDescriptions.SetToolTip(this.chkOverlayEnabled, "开启后在目标窗口上绘制检测框，关闭可观察其对性能的影响。");
             this.chkOverlayEnabled.UseVisualStyleBackColor = true;
@@ -610,10 +646,10 @@
             // 
             this.lblParameterHint.AutoSize = true;
             this.lblParameterHint.ForeColor = System.Drawing.SystemColors.GrayText;
-            this.lblParameterHint.Location = new System.Drawing.Point(12, 196);
+            this.lblParameterHint.Location = new System.Drawing.Point(12, 224);
             this.lblParameterHint.Name = "lblParameterHint";
             this.lblParameterHint.Size = new System.Drawing.Size(439, 15);
-            this.lblParameterHint.TabIndex = 34;
+            this.lblParameterHint.TabIndex = 36;
             this.lblParameterHint.Text = "参数说明：将鼠标停留在按钮或输入框上可查看用途。新增反馈抑制参数可减少乱飘。";
             // 
             // lblHandle
@@ -628,7 +664,7 @@
             // lblStatus
             // 
             this.lblStatus.AutoSize = true;
-            this.lblStatus.Location = new System.Drawing.Point(12, 218);
+            this.lblStatus.Location = new System.Drawing.Point(12, 246);
             this.lblStatus.Name = "lblStatus";
             this.lblStatus.Size = new System.Drawing.Size(43, 15);
             this.lblStatus.TabIndex = 22;
@@ -637,7 +673,7 @@
             // pictureBoxPreview
             // 
             this.pictureBoxPreview.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.pictureBoxPreview.Location = new System.Drawing.Point(12, 245);
+            this.pictureBoxPreview.Location = new System.Drawing.Point(12, 273);
             this.pictureBoxPreview.Name = "pictureBoxPreview";
             this.pictureBoxPreview.Size = new System.Drawing.Size(776, 330);
             this.pictureBoxPreview.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
@@ -646,7 +682,7 @@
             // 
             // txtDiagnostics
             // 
-            this.txtDiagnostics.Location = new System.Drawing.Point(12, 581);
+            this.txtDiagnostics.Location = new System.Drawing.Point(12, 609);
             this.txtDiagnostics.Multiline = true;
             this.txtDiagnostics.Name = "txtDiagnostics";
             this.txtDiagnostics.ReadOnly = true;
@@ -658,9 +694,11 @@
             // Form1
             // 
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(800, 748);
+            ClientSize = new Size(800, 780);
             Controls.Add(this.txtDiagnostics);
             Controls.Add(this.pictureBoxPreview);
+            Controls.Add(this.numAimStopInsideBoxArea);
+            Controls.Add(this.lblAimStopInsideBoxArea);
             Controls.Add(this.chkOverlayEnabled);
             Controls.Add(this.lblParameterHint);
             Controls.Add(this.numAimFeedbackFrameDelay);
@@ -717,6 +755,7 @@
             ((System.ComponentModel.ISupportInitialize)(this.numAimCloseRangeSlowdown)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimMoveCooldown)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimFeedbackFrameDelay)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimStopInsideBoxArea)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBoxPreview)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
@@ -757,6 +796,8 @@
         private System.Windows.Forms.NumericUpDown numAimMoveCooldown;
         private System.Windows.Forms.Label lblAimFeedbackFrameDelay;
         private System.Windows.Forms.NumericUpDown numAimFeedbackFrameDelay;
+        private System.Windows.Forms.Label lblAimStopInsideBoxArea;
+        private System.Windows.Forms.NumericUpDown numAimStopInsideBoxArea;
         private System.Windows.Forms.CheckBox chkOverlayEnabled;
         private System.Windows.Forms.Label lblParameterHint;
         private System.Windows.Forms.Label lblHandle;
