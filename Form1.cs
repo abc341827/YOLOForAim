@@ -36,6 +36,8 @@ namespace YOLOForAim
         private const float StableTargetIouThreshold = 0.35f;
         private const float AimStopInsideBoxAreaRatio = 0.8f;
         private const float AimLargePullDistancePixels = 72f;
+        private const int AimReacquireAfterLargePullFrames = 2;
+        private const int AimReacquireAfterLargePullMs = 90;
         private static readonly string UiSettingsFilePath = Path.Combine(AppContext.BaseDirectory, "ui-settings.json");
 
         private IntPtr selectedHwnd = IntPtr.Zero;
@@ -90,6 +92,8 @@ namespace YOLOForAim
         private long stableTargetSizeHoldUntilTick;
         private long pendingTargetSwitchTick;
         private int suppressOverlayFrameVersion = -1;
+        private int suspendAimUntilFrameVersion = -1;
+        private long suspendAimUntilTick;
 
         public Form1()
         {
@@ -524,7 +528,7 @@ namespace YOLOForAim
 
         private IReadOnlyList<DetectionResult> BuildOverlayDetections(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, int processedFrameVersion)
         {
-            if (processedFrameVersion == suppressOverlayFrameVersion)
+            if (processedFrameVersion <= suppressOverlayFrameVersion)
             {
                 return Array.Empty<DetectionResult>();
             }
@@ -641,6 +645,12 @@ namespace YOLOForAim
 
         private void TryMoveMouseToNearestDetection(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, int processedFrameVersion)
         {
+            long now = Environment.TickCount64;
+            if (processedFrameVersion <= suspendAimUntilFrameVersion || now < suspendAimUntilTick)
+            {
+                return;
+            }
+
             if (captureBounds.IsEmpty || !IsAimAssistActive())
             {
                 ResetAimTrackingState();
@@ -667,7 +677,6 @@ namespace YOLOForAim
             }
 
             float distanceFromLockedTarget = MathF.Sqrt((float)nearestDetection.DistanceSquared);
-            long now = Environment.TickCount64;
             if (lockedTargetScreenPoint is not null && distanceFromLockedTarget > currentAimLockSwitchDistancePixels)
             {
                 if (!IsLikelySameLockedTarget(nearestDetection.Detection, captureBounds))
@@ -765,7 +774,9 @@ namespace YOLOForAim
             bool shouldClearCurrentLock = distanceToAimPoint >= AimLargePullDistancePixels;
             if (shouldClearCurrentLock)
             {
-                suppressOverlayFrameVersion = processedFrameVersion;
+                suppressOverlayFrameVersion = processedFrameVersion + AimReacquireAfterLargePullFrames;
+                suspendAimUntilFrameVersion = processedFrameVersion + AimReacquireAfterLargePullFrames;
+                suspendAimUntilTick = now + AimReacquireAfterLargePullMs;
                 ClearOverlayState();
                 ResetAimTrackingState();
             }
@@ -796,7 +807,7 @@ namespace YOLOForAim
             stabilizedLockedDetection = null;
             stabilizedLockedDetectionFrames = 0;
             hasAppliedInitialLockPull = false;
-            stableTargetSizeHoldUntilTick = 0;
+            // stableTargetSizeHoldUntilTick = 0; // 保持重置锁定状态的范围仅限跟踪本身，不清除大幅拉动后的重识别冷却状态
             pendingTargetSwitchTick = 0;
         }
 
