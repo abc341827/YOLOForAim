@@ -24,8 +24,8 @@ namespace YOLOForAim
         private const float AimHeightHighConfidenceBlend = 0.45f;
         private const float AimHeightLowConfidenceBlend = 0.12f;
         private const float AimHeightLowConfidenceMinRatio = 0.92f;
-        private const float StableTargetConfidenceThreshold = 0.7f;
-        private const float StableTargetPositionTolerancePixels = 18f;
+        private const float StableTargetConfidenceThreshold = 0.45f;
+        private const float StableTargetPositionTolerancePixels = 30f;
         private const float StableTargetPositionBlend = 0.45f;
         private const int StableTargetConfirmationFrames = 2;
         private const int StableTargetSizeHoldMs = 180;
@@ -33,6 +33,9 @@ namespace YOLOForAim
         private const float StableTargetSizeBlend = 0.22f;
         private const int AimTargetSwitchHoldMs = 120;
         private const float AimSameTargetOverlapThreshold = 0.12f;
+        private const float StableTargetIouThreshold = 0.35f;
+        private const float AimStopInsideBoxAreaRatio = 0.8f;
+        private const float AimLargePullDistancePixels = 72f;
         private static readonly string UiSettingsFilePath = Path.Combine(AppContext.BaseDirectory, "ui-settings.json");
 
         private IntPtr selectedHwnd = IntPtr.Zero;
@@ -86,6 +89,7 @@ namespace YOLOForAim
         private bool hasAppliedInitialLockPull;
         private long stableTargetSizeHoldUntilTick;
         private long pendingTargetSwitchTick;
+        private int suppressOverlayFrameVersion = -1;
 
         public Form1()
         {
@@ -410,7 +414,7 @@ namespace YOLOForAim
                             sourceRegion) ?? new DetectionRunResult(Array.Empty<DetectionResult>());
                         detectStopwatch.Stop();
                         TryMoveMouseToNearestDetection(result.Detections, frameToProcess.ScreenBounds, processedVersion);
-                        UpdateOverlayState(frameToProcess.ScreenBounds, BuildOverlayDetections(result.Detections, frameToProcess.ScreenBounds));
+                        UpdateOverlayState(frameToProcess.ScreenBounds, BuildOverlayDetections(result.Detections, frameToProcess.ScreenBounds, processedVersion));
                         processedFrameCounter++;
                         UpdateInferenceFps(detectStopwatch.Elapsed.TotalMilliseconds);
 
@@ -518,8 +522,13 @@ namespace YOLOForAim
             }
         }
 
-        private IReadOnlyList<DetectionResult> BuildOverlayDetections(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds)
+        private IReadOnlyList<DetectionResult> BuildOverlayDetections(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, int processedFrameVersion)
         {
+            if (processedFrameVersion == suppressOverlayFrameVersion)
+            {
+                return Array.Empty<DetectionResult>();
+            }
+
             if (detections.Count == 0 || stabilizedLockedDetection is null)
             {
                 return detections;
@@ -706,6 +715,11 @@ namespace YOLOForAim
             float rawMoveX = targetPointForMove.X - aimReferencePoint.X;
             float rawMoveY = targetPointForMove.Y - aimReferencePoint.Y;
             float distanceToAimPoint = MathF.Sqrt((rawMoveX * rawMoveX) + (rawMoveY * rawMoveY));
+            if (IsAimReferenceInsideStableBox(captureBounds, stabilizedDetection, aimReferencePoint, AimStopInsideBoxAreaRatio))
+            {
+                return;
+            }
+
             if (distanceToAimPoint <= currentAimDeadzonePixels)
             {
                 return;
@@ -748,7 +762,18 @@ namespace YOLOForAim
             }
 
             SendRelativeMouseMove(finalMoveX, finalMoveY);
-            hasAppliedInitialLockPull = true;
+            bool shouldClearCurrentLock = distanceToAimPoint >= AimLargePullDistancePixels;
+            if (shouldClearCurrentLock)
+            {
+                suppressOverlayFrameVersion = processedFrameVersion;
+                ClearOverlayState();
+                ResetAimTrackingState();
+            }
+            else
+            {
+                hasAppliedInitialLockPull = true;
+            }
+
             lastAimMoveTick = now;
             lastAimMoveFrameVersion = processedFrameVersion;
         }
@@ -812,40 +837,28 @@ namespace YOLOForAim
 
         private SizeF GetStableTargetSize(DetectionResult detection, Rectangle captureBounds, long now)
         {
-            if (stabilizedLockedDetection is null)
-            {
-                return detection.Box.Size;
-            }
-
-            SizeF currentStableSize = stabilizedLockedDetection.Box.Size;
-            if (now < stableTargetSizeHoldUntilTick)
-            {
-                return currentStableSize;
-            }
-
-            PointF aimReferencePoint = GetAimReferencePoint(captureBounds);
-            PointF detectionAimPoint = GetAimPoint(captureBounds, detection);
-            if (GetDistanceSquared(aimReferencePoint, detectionAimPoint) <
-                (StableTargetSizeUpdateCenterOffsetPixels * StableTargetSizeUpdateCenterOffsetPixels))
-            {
-                return currentStableSize;
-            }
-
-            stableTargetSizeHoldUntilTick = now + StableTargetSizeHoldMs;
-            return LerpSize(currentStableSize, detection.Box.Size, StableTargetSizeBlend);
+            _ = captureBounds;
+            _ = now;
+            return stabilizedLockedDetection?.Box.Size ?? detection.Box.Size;
         }
 
         private static bool ShouldKeepStableTarget(DetectionResult previousDetection, DetectionResult currentDetection)
         {
-            if (previousDetection.ClassId != currentDetection.ClassId || currentDetection.Score < StableTargetConfidenceThreshold)
+            if (previousDetection.ClassId != currentDetection.ClassId)
             {
                 return false;
+            }
+
+            if (currentDetection.Score < StableTargetConfidenceThreshold)
+            {
+                return CalculateIou(previousDetection.Box, currentDetection.Box) >= StableTargetIouThreshold;
             }
 
             PointF previousCenter = GetBoxCenter(previousDetection.Box);
             PointF currentCenter = GetBoxCenter(currentDetection.Box);
             return GetDistanceSquared(previousCenter, currentCenter) <=
-                (StableTargetPositionTolerancePixels * StableTargetPositionTolerancePixels);
+                (StableTargetPositionTolerancePixels * StableTargetPositionTolerancePixels) ||
+                CalculateIou(previousDetection.Box, currentDetection.Box) >= StableTargetIouThreshold;
         }
 
         private bool IsLikelySameLockedTarget(DetectionResult detection, Rectangle captureBounds)
@@ -964,6 +977,30 @@ namespace YOLOForAim
                 captureBounds.Top + detection.Box.Y - padding,
                 detection.Box.Width + (padding * 2f),
                 detection.Box.Height + (padding * 2f));
+        }
+
+        private static RectangleF GetDetectionScreenBounds(Rectangle captureBounds, DetectionResult detection)
+        {
+            return new RectangleF(
+                captureBounds.Left + detection.Box.X,
+                captureBounds.Top + detection.Box.Y,
+                detection.Box.Width,
+                detection.Box.Height);
+        }
+
+        private static bool IsAimReferenceInsideStableBox(Rectangle captureBounds, DetectionResult detection, PointF aimReferencePoint, float areaRatio)
+        {
+            RectangleF screenBounds = GetDetectionScreenBounds(captureBounds, detection);
+            RectangleF innerBounds = GetInnerAreaBounds(screenBounds, areaRatio);
+            return innerBounds.Contains(aimReferencePoint);
+        }
+
+        private static RectangleF GetInnerAreaBounds(RectangleF bounds, float areaRatio)
+        {
+            float scale = MathF.Sqrt(Math.Clamp(areaRatio, 0.05f, 1f));
+            float innerWidth = bounds.Width * scale;
+            float innerHeight = bounds.Height * scale;
+            return CreateCenteredBox(GetBoxCenter(bounds), new SizeF(innerWidth, innerHeight));
         }
 
         private PointF GetAimPoint(Rectangle captureBounds, DetectionResult detection)
