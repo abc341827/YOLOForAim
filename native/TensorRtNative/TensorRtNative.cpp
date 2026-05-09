@@ -406,7 +406,7 @@ namespace
                 tensorInfo.dims[dimIndex] = tensor.dims.d[dimIndex];
             }
             std::memset(tensorInfo.name, 0, kMaxNameLength);
-            std::strncpy_s(tensorInfo.name, tensor.name.c_str(), _TRUNCATE);
+            strncpy_s(tensorInfo.name, tensor.name.c_str(), _TRUNCATE);
 
             engineContext->tensors.push_back(std::move(tensor));
         }
