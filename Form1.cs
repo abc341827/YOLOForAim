@@ -1037,9 +1037,9 @@ namespace YOLOForAim
 
         private static PointF GetAimReferencePoint(Rectangle captureBounds)
         {
-            return new PointF(
-                captureBounds.Left + (captureBounds.Width / 2f),
-                captureBounds.Top + (captureBounds.Height / 2f));
+            _ = captureBounds;
+            Point cursorPosition = Cursor.Position;
+            return new PointF(cursorPosition.X, cursorPosition.Y);
         }
 
         private static bool IsLeftMouseButtonDown()
