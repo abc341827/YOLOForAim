@@ -796,6 +796,12 @@ namespace YOLOForAim
             wasLeftMouseButtonDown = false;
             lastAimMoveTick = 0;
             lastAimMoveFrameVersion = -1;
+            lastPendingCompensationFrameVersion = -1;
+            pendingAimCompensation = PointF.Empty;
+            stableTargetSizeHoldUntilTick = 0;
+            suppressOverlayFrameVersion = -1;
+            suspendAimUntilFrameVersion = -1;
+            suspendAimUntilTick = 0;
         }
 
         private void ResetAimTrackingState()
@@ -807,7 +813,6 @@ namespace YOLOForAim
             stabilizedLockedDetection = null;
             stabilizedLockedDetectionFrames = 0;
             hasAppliedInitialLockPull = false;
-            // stableTargetSizeHoldUntilTick = 0; // 保持重置锁定状态的范围仅限跟踪本身，不清除大幅拉动后的重识别冷却状态
             pendingTargetSwitchTick = 0;
         }
 
