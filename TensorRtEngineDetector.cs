@@ -1,58 +1,70 @@
 ﻿using System.Drawing;
-using System.Drawing;
-using Microsoft.ML.OnnxRuntime;
-using Microsoft.ML.OnnxRuntime.Tensors;
 
 namespace YOLOForAim;
 
-internal sealed class YoloDetector : IDetector
+internal sealed class TensorRtEngineDetector : IDetector
 {
     private const float NmsThreshold = 0.45f;
 
-    private readonly InferenceSession session;
-    private readonly string inputName;
+    private IntPtr detectorHandle;
+    private readonly TensorRtTensorInfo inputTensor;
+    private readonly TensorRtTensorInfo[] outputTensors;
     private readonly int inputWidth;
     private readonly int inputHeight;
-    private readonly TensorElementType inputElementType;
-    private readonly string executionProvider;
-    private readonly string executionProviderDetails;
     private readonly float scoreThreshold;
 
     public string ModelSummary { get; }
 
-    public YoloDetector(string modelPath, DetectorOptions detectorOptions)
+    public TensorRtEngineDetector(string enginePath, DetectorOptions detectorOptions)
     {
-        scoreThreshold = detectorOptions.ScoreThreshold;
-
-        var sessionOptions = new SessionOptions
+        if (string.IsNullOrWhiteSpace(enginePath))
         {
-            GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL
-        };
+            throw new ArgumentException("TensorRT engine 路径不能为空。", nameof(enginePath));
+        }
 
-        (executionProvider, executionProviderDetails) = ConfigureExecutionProvider(sessionOptions, detectorOptions.PreferGpu);
+        if (!File.Exists(enginePath))
+        {
+            throw new FileNotFoundException("未找到 TensorRT engine 文件。", enginePath);
+        }
 
-        session = new InferenceSession(modelPath, sessionOptions);
-        inputName = session.InputMetadata.Keys.First();
+        scoreThreshold = detectorOptions.ScoreThreshold;
+        detectorHandle = TensorRtNativeMethods.OpenEngine(enginePath, out TensorRtTensorInfoNative[] tensorInfos);
 
-        var inputMetadata = session.InputMetadata[inputName];
-        var dimensions = inputMetadata.Dimensions;
-        inputHeight = dimensions.Length > 2 && dimensions[2] > 0 ? dimensions[2] : 640;
-        inputWidth = dimensions.Length > 3 && dimensions[3] > 0 ? dimensions[3] : 640;
-        inputElementType = inputMetadata.ElementDataType;
-        ModelSummary = BuildModelSummary();
+        TensorRtTensorInfo[] normalizedInfos = tensorInfos
+            .Select(static info => new TensorRtTensorInfo(
+                string.IsNullOrWhiteSpace(info.Name) ? "(unnamed)" : info.Name,
+                info.IsInput != 0,
+                (TensorRtElementType)info.DataType,
+                NormalizeDimensions(info.Dims, info.NbDims)))
+            .ToArray();
+
+        inputTensor = normalizedInfos.SingleOrDefault(static info => info.IsInput)
+            ?? throw new InvalidOperationException("TensorRT engine 未发现输入张量。");
+        outputTensors = normalizedInfos.Where(static info => !info.IsInput).ToArray();
+        if (outputTensors.Length == 0)
+        {
+            throw new InvalidOperationException("TensorRT engine 未发现输出张量。");
+        }
+
+        (inputHeight, inputWidth) = ResolveInputSize(inputTensor.Dimensions);
+        ModelSummary = BuildModelSummary(enginePath);
     }
 
     public DetectionRunResult Detect(byte[] sourcePixels, int sourceWidth, int sourceHeight, int sourceStride, Rectangle sourceRegion)
     {
         Rectangle normalizedSourceRegion = NormalizeSourceRegion(sourceRegion, sourceWidth, sourceHeight);
         PreprocessResult preprocess = Preprocess(sourcePixels, sourceWidth, sourceHeight, sourceStride, normalizedSourceRegion);
-        var inputs = CreateInputs(preprocess.TensorData);
 
-        using IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results = session.Run(inputs);
-        var outputs = new List<OutputSnapshot>();
-        foreach (var result in results)
+        TensorRtNativeMethods.RunInference(detectorHandle, preprocess.TensorData);
+
+        OutputSnapshot[] outputs = new OutputSnapshot[outputTensors.Length];
+        for (int outputIndex = 0; outputIndex < outputTensors.Length; outputIndex++)
         {
-            outputs.Add(CreateOutputSnapshot(result));
+            TensorRtTensorInfo outputTensor = outputTensors[outputIndex];
+            int elementCount = checked((int)GetElementCount(outputTensor.Dimensions));
+            float[] data = new float[elementCount];
+            TensorRtNativeMethods.CopyOutputToFloat(detectorHandle, outputIndex, data);
+            outputs[outputIndex] = new OutputSnapshot(outputTensor.Name, outputTensor.Dimensions, outputTensor.DataType, data);
         }
 
         IReadOnlyList<DetectionResult> detections = ParseOutputs(outputs, normalizedSourceRegion.Size, preprocess.Scale, preprocess.PadX, preprocess.PadY);
@@ -66,44 +78,60 @@ internal sealed class YoloDetector : IDetector
 
     public void Dispose()
     {
-        session.Dispose();
-    }
-
-    private static (string Provider, string Details) ConfigureExecutionProvider(SessionOptions sessionOptions, bool preferGpu)
-    {
-        if (!preferGpu)
+        if (detectorHandle != IntPtr.Zero)
         {
-            return ("CPU", "未勾选 GPU 优先，当前使用 CPU。");
-        }
-
-        try
-        {
-            sessionOptions.AppendExecutionProvider_DML(0);
-            return ("DirectML(GPU)", "DirectML 初始化成功。");
-        }
-        catch (Exception ex)
-        {
-            return ("CPU(DirectML不可用，已回退)", ex.Message);
+            TensorRtNativeMethods.trt_close_engine(detectorHandle);
+            detectorHandle = IntPtr.Zero;
         }
     }
 
-    private List<NamedOnnxValue> CreateInputs(float[] tensorData)
+    private static int[] NormalizeDimensions(long[] rawDimensions, int nbDims)
     {
-        if (inputElementType == TensorElementType.Float16)
+        int dimensionCount = Math.Max(0, Math.Min(nbDims, rawDimensions.Length));
+        int[] dimensions = new int[dimensionCount];
+        for (int index = 0; index < dimensionCount; index++)
         {
-            Half[] halfTensorData = tensorData.Select(static value => (Half)value).ToArray();
-            var halfTensor = new DenseTensor<Half>(halfTensorData, new[] { 1, 3, inputHeight, inputWidth });
-            return new List<NamedOnnxValue>
+            long dimension = rawDimensions[index];
+            dimensions[index] = dimension > int.MaxValue ? int.MaxValue : (int)dimension;
+        }
+
+        return dimensions;
+    }
+
+    private static (int Height, int Width) ResolveInputSize(IReadOnlyList<int> dimensions)
+    {
+        if (dimensions.Count >= 4)
+        {
+            return (NormalizeDimension(dimensions[^2], 640), NormalizeDimension(dimensions[^1], 640));
+        }
+
+        if (dimensions.Count == 3)
+        {
+            return (NormalizeDimension(dimensions[^2], 640), NormalizeDimension(dimensions[^1], 640));
+        }
+
+        return (640, 640);
+    }
+
+    private static int NormalizeDimension(int dimension, int fallback)
+    {
+        return dimension > 0 ? dimension : fallback;
+    }
+
+    private static long GetElementCount(IReadOnlyList<int> dimensions)
+    {
+        long elementCount = 1;
+        foreach (int dimension in dimensions)
+        {
+            if (dimension <= 0)
             {
-                NamedOnnxValue.CreateFromTensor(inputName, halfTensor)
-            };
+                throw new NotSupportedException($"暂不支持动态输出维度: [{string.Join(", ", dimensions)}]");
+            }
+
+            elementCount *= dimension;
         }
 
-        var floatTensor = new DenseTensor<float>(tensorData, new[] { 1, 3, inputHeight, inputWidth });
-        return new List<NamedOnnxValue>
-        {
-            NamedOnnxValue.CreateFromTensor(inputName, floatTensor)
-        };
+        return Math.Max(1, elementCount);
     }
 
     private Rectangle NormalizeSourceRegion(Rectangle sourceRegion, int sourceWidth, int sourceHeight)
@@ -158,24 +186,6 @@ internal sealed class YoloDetector : IDetector
         }
 
         return new PreprocessResult(tensorData, scale, padX, padY);
-    }
-
-    private OutputSnapshot CreateOutputSnapshot(DisposableNamedOnnxValue result)
-    {
-        var metadata = session.OutputMetadata[result.Name];
-        return metadata.ElementDataType switch
-        {
-            TensorElementType.Float => CreateOutputSnapshot(result.Name, metadata.ElementDataType, result.AsTensor<float>().Dimensions.ToArray(), result.AsTensor<float>().ToArray()),
-            TensorElementType.Float16 => CreateOutputSnapshot(result.Name, metadata.ElementDataType, result.AsTensor<Half>().Dimensions.ToArray(), result.AsTensor<Half>().ToArray().Select(static value => (float)value).ToArray()),
-            TensorElementType.Int64 => CreateOutputSnapshot(result.Name, metadata.ElementDataType, result.AsTensor<long>().Dimensions.ToArray(), result.AsTensor<long>().ToArray().Select(static value => (float)value).ToArray()),
-            TensorElementType.Int32 => CreateOutputSnapshot(result.Name, metadata.ElementDataType, result.AsTensor<int>().Dimensions.ToArray(), result.AsTensor<int>().ToArray().Select(static value => (float)value).ToArray()),
-            _ => throw new NotSupportedException($"暂不支持输出类型: {metadata.ElementDataType}")
-        };
-    }
-
-    private static OutputSnapshot CreateOutputSnapshot(string name, TensorElementType elementType, int[] dimensions, float[] data)
-    {
-        return new OutputSnapshot(name, dimensions, elementType, data);
     }
 
     private IReadOnlyList<DetectionResult> ParseOutputs(
@@ -510,25 +520,24 @@ internal sealed class YoloDetector : IDetector
         return offsetDetections;
     }
 
-    private string BuildModelSummary()
+    private string BuildModelSummary(string enginePath)
     {
         var lines = new List<string>
         {
             "模型自检信息",
-            $"输入: {inputName}",
-            $"输入类型: {inputElementType}",
-            "后端: ONNX Runtime / DirectML",
-            $"执行设备: {executionProvider}",
-            $"设备说明: {executionProviderDetails}",
+            "后端: TensorRT Engine",
+            $"Engine: {enginePath}",
+            $"输入: {inputTensor.Name}",
+            $"输入类型: {inputTensor.DataType}",
             $"检测阈值: {scoreThreshold:0.00}",
-            $"输入形状: [1, 3, {inputHeight}, {inputWidth}]",
+            $"输入形状: [{FormatDimensions(inputTensor.Dimensions)}]",
             "预处理: RGB / 归一化到 0-1 / NCHW / Letterbox",
             "输出:"
         };
 
-        foreach (var output in session.OutputMetadata)
+        foreach (TensorRtTensorInfo output in outputTensors)
         {
-            lines.Add($"- {output.Key}: {output.Value.ElementDataType} [{FormatDimensions(output.Value.Dimensions)}]");
+            lines.Add($"- {output.Name}: {output.DataType} [{FormatDimensions(output.Dimensions)}]");
         }
 
         lines.Add("解析顺序: 多输出 End-to-End -> 单输出 6 列 End-to-End -> 原始 YOLO 输出");
@@ -577,6 +586,6 @@ internal sealed class YoloDetector : IDetector
     }
 
     private sealed record PreprocessResult(float[] TensorData, float Scale, float PadX, float PadY);
-
-    private sealed record OutputSnapshot(string Name, int[] Dimensions, TensorElementType ElementType, float[] Data);
+    private sealed record OutputSnapshot(string Name, int[] Dimensions, TensorRtElementType ElementType, float[] Data);
+    private sealed record TensorRtTensorInfo(string Name, bool IsInput, TensorRtElementType DataType, int[] Dimensions);
 }

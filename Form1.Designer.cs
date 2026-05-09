@@ -670,12 +670,12 @@
             this.cmbInferenceBackend.FormattingEnabled = true;
             this.cmbInferenceBackend.Items.AddRange(new object[] {
             "ONNX Runtime / DirectML",
-            "TensorRT"});
+            "TensorRT Engine"});
             this.cmbInferenceBackend.Location = new System.Drawing.Point(457, 48);
             this.cmbInferenceBackend.Name = "cmbInferenceBackend";
             this.cmbInferenceBackend.Size = new System.Drawing.Size(191, 23);
             this.cmbInferenceBackend.TabIndex = 38;
-            this.toolTipDescriptions.SetToolTip(this.cmbInferenceBackend, "切换识别后端。TensorRT 模式会优先使用 dawn.onnx 与 engine 缓存目录。");
+            this.toolTipDescriptions.SetToolTip(this.cmbInferenceBackend, "切换识别后端。TensorRT Engine 模式会直接加载输出目录中的 .engine 文件。");
             this.cmbInferenceBackend.SelectedIndexChanged += new System.EventHandler(this.cmbInferenceBackend_SelectedIndexChanged);
             // 
             // lblHandle

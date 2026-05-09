@@ -41,7 +41,6 @@ namespace YOLOForAim
         private const int AimReacquireAfterLargePullMs = 90;
         private static readonly string UiSettingsFilePath = Path.Combine(AppContext.BaseDirectory, "ui-settings.json");
         private static readonly string[] DirectMlModelCandidates = ["exp.onnx", "dawn.onnx", "dawn01.onnx"];
-        private static readonly string[] TensorRtModelCandidates = ["dawn.onnx", "dawn01.onnx", "exp.onnx"];
         private static readonly string[] TensorRtEngineCandidates = ["dawn2.engine", "dawn.engine"];
 
         private IntPtr selectedHwnd = IntPtr.Zero;
@@ -49,11 +48,12 @@ namespace YOLOForAim
         private CancellationTokenSource? detectionCancellationTokenSource;
         private Task? captureTask;
         private Task? inferenceTask;
-        private YoloDetector? yoloDetector;
+        private IDetector? detector;
         private int processedFrameCounter;
         private double currentInferenceFps;
         private double inferenceFpsAccumulatedMs;
         private int inferenceFpsFrameCounter;
+        private string diagnosticsHeader = string.Empty;
         private readonly Stopwatch inferenceFpsUiStopwatch = new();
         private readonly object latestFrameLock = new();
         private readonly object overlayStateLock = new();
@@ -165,10 +165,16 @@ namespace YOLOForAim
             }
 
             DetectorBackend selectedBackend = GetSelectedBackend();
-            string resolvedModelPath = ResolveModelPath(selectedBackend);
-            string? tensorRtEnginePath = selectedBackend == DetectorBackend.TensorRt ? ResolveTensorRtEnginePath(resolvedModelPath) : null;
+            string? resolvedModelPath = selectedBackend == DetectorBackend.TensorRtEngine ? null : ResolveDirectMlModelPath();
+            string? tensorRtEnginePath = selectedBackend == DetectorBackend.TensorRtEngine ? ResolveTensorRtEnginePath() : null;
 
-            if (!File.Exists(resolvedModelPath))
+            if (selectedBackend == DetectorBackend.TensorRtEngine && string.IsNullOrWhiteSpace(tensorRtEnginePath))
+            {
+                MessageBox.Show("未找到 TensorRT engine 文件。请将 .engine 放到输出目录后再启动。", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            if (selectedBackend != DetectorBackend.TensorRtEngine && (resolvedModelPath is null || !File.Exists(resolvedModelPath)))
             {
                 MessageBox.Show($"未找到模型文件: {resolvedModelPath}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
@@ -176,14 +182,16 @@ namespace YOLOForAim
 
             try
             {
-                yoloDetector?.Dispose();
-                yoloDetector = new YoloDetector(
-                    resolvedModelPath,
-                    new DetectorOptions(
-                        selectedBackend,
-                        chkPreferGpu.Checked,
-                        (float)numScoreThreshold.Value / 100f,
-                        tensorRtEnginePath));
+                detector?.Dispose();
+                DetectorOptions detectorOptions = new(
+                    selectedBackend,
+                    chkPreferGpu.Checked,
+                    (float)numScoreThreshold.Value / 100f,
+                    tensorRtEnginePath);
+
+                detector = selectedBackend == DetectorBackend.TensorRtEngine
+                    ? new TensorRtEngineDetector(tensorRtEnginePath!, detectorOptions)
+                    : new YoloDetector(resolvedModelPath!, detectorOptions);
                 windowCapture?.Dispose();
                 windowCapture = new DesktopDuplicationCapture(selectedHwnd);
             }
@@ -216,7 +224,8 @@ namespace YOLOForAim
             currentAimMoveCooldownMs = (int)numAimMoveCooldown.Value;
             currentAimFeedbackFrameDelay = Math.Max(0, (int)numAimFeedbackFrameDelay.Value);
             currentAimStopInsideBoxAreaRatio = (float)numAimStopInsideBoxArea.Value / 100f;
-            txtDiagnostics.Text = yoloDetector?.ModelSummary ?? "YOLO FPS: 0.0";
+            diagnosticsHeader = detector?.ModelSummary ?? string.Empty;
+            UpdateDiagnosticsText();
             ClearOverlayState();
             EnsureDetectionOverlay();
             overlayRefreshTimer.Start();
@@ -227,11 +236,12 @@ namespace YOLOForAim
 
             btnStartDetection.Enabled = false;
             btnStopDetection.Enabled = true;
-            string backendText = selectedBackend == DetectorBackend.TensorRt ? "TensorRT" : "ONNX Runtime / DirectML";
-            string engineText = selectedBackend == DetectorBackend.TensorRt
-                ? $", engine={(tensorRtEnginePath is null ? "自动构建" : Path.GetFileName(tensorRtEnginePath))}"
+            string backendText = selectedBackend == DetectorBackend.TensorRtEngine ? "TensorRT Engine" : "ONNX Runtime / DirectML";
+            string engineText = selectedBackend == DetectorBackend.TensorRtEngine
+                ? $", engine={Path.GetFileName(tensorRtEnginePath)}"
                 : string.Empty;
-            lblStatus.Text = $"检测中... 后端={backendText}, 模型={Path.GetFileName(resolvedModelPath)}{engineText}, ROI={(currentCenterRoiOnly ? $"中心 {currentRoiSize}" : "全窗口")}";
+            string modelText = resolvedModelPath is null ? string.Empty : $", 模型={Path.GetFileName(resolvedModelPath)}";
+            lblStatus.Text = $"检测中... 后端={backendText}{modelText}{engineText}, ROI={(currentCenterRoiOnly ? $"中心 {currentRoiSize}" : "全窗口")}";
         }
 
         private async Task ToggleDetectionAsync()
@@ -297,7 +307,7 @@ namespace YOLOForAim
             detectionOverlay?.Close();
             detectionOverlay?.Dispose();
             windowCapture?.Dispose();
-            yoloDetector?.Dispose();
+            detector?.Dispose();
             detectionCancellationTokenSource?.Dispose();
             SaveUiSettings();
             base.OnFormClosed(e);
@@ -349,6 +359,8 @@ namespace YOLOForAim
                 }
                 windowCapture?.Dispose();
                 windowCapture = null;
+                detector?.Dispose();
+                detector = null;
                 overlayRefreshTimer.Stop();
                 ClearOverlayState();
                 detectionOverlay?.HideOverlay();
@@ -357,10 +369,11 @@ namespace YOLOForAim
                 inferenceFpsAccumulatedMs = 0;
                 inferenceFpsFrameCounter = 0;
                 inferenceFpsUiStopwatch.Reset();
+                diagnosticsHeader = string.Empty;
                 btnStartDetection.Enabled = true;
                 btnStopDetection.Enabled = false;
                 lblStatus.Text = "检测已停止。";
-                txtDiagnostics.Text = "YOLO FPS: 0.0";
+                UpdateDiagnosticsText();
             }
         }
 
@@ -432,7 +445,7 @@ namespace YOLOForAim
                     {
                         Rectangle sourceRegion = GetSourceRegion(frameToProcess.Width, frameToProcess.Height);
                         var detectStopwatch = Stopwatch.StartNew();
-                        DetectionRunResult result = yoloDetector?.Detect(
+                        DetectionRunResult result = detector?.Detect(
                             frameToProcess.Pixels,
                             frameToProcess.Width,
                             frameToProcess.Height,
@@ -482,7 +495,15 @@ namespace YOLOForAim
             }
 
             lblStatus.Text = $"检测中，目标数: {detectionCount}";
-            txtDiagnostics.Text = $"YOLO FPS: {currentInferenceFps:F1}";
+            UpdateDiagnosticsText();
+        }
+
+        private void UpdateDiagnosticsText()
+        {
+            string fpsLine = $"YOLO FPS: {currentInferenceFps:F1}";
+            txtDiagnostics.Text = string.IsNullOrWhiteSpace(diagnosticsHeader)
+                ? fpsLine
+                : $"{diagnosticsHeader}{Environment.NewLine}{Environment.NewLine}{fpsLine}";
         }
 
         private void cmbInferenceBackend_SelectedIndexChanged(object? sender, EventArgs e)
@@ -492,17 +513,17 @@ namespace YOLOForAim
 
         private void UpdateInferenceBackendUi()
         {
-            bool isTensorRt = GetSelectedBackend() == DetectorBackend.TensorRt;
+            bool isTensorRt = GetSelectedBackend() == DetectorBackend.TensorRtEngine;
             chkPreferGpu.Checked = isTensorRt || chkPreferGpu.Checked;
             chkPreferGpu.Enabled = !isTensorRt;
             chkPreferGpu.Text = isTensorRt ? "TensorRT 模式固定使用 GPU" : "优先使用 GPU(DML)";
 
             if (captureTask is null && inferenceTask is null)
             {
-                string modelPath = ResolveModelPath(GetSelectedBackend());
-                string? enginePath = isTensorRt ? ResolveTensorRtEnginePath(modelPath) : null;
+                string? modelPath = isTensorRt ? null : ResolveDirectMlModelPath();
+                string? enginePath = isTensorRt ? ResolveTensorRtEnginePath() : null;
                 lblStatus.Text = isTensorRt
-                    ? $"TensorRT 待命: ONNX={Path.GetFileName(modelPath)}, engine={(enginePath is null ? "自动构建" : Path.GetFileName(enginePath))}"
+                    ? $"TensorRT Engine 待命: engine={(enginePath is null ? "(未找到)" : Path.GetFileName(enginePath))}"
                     : $"DirectML 待命: ONNX={Path.GetFileName(modelPath)}";
             }
         }
@@ -510,21 +531,17 @@ namespace YOLOForAim
         private DetectorBackend GetSelectedBackend()
         {
             return cmbInferenceBackend.SelectedIndex == 1
-                ? DetectorBackend.TensorRt
+                ? DetectorBackend.TensorRtEngine
                 : DetectorBackend.OnnxRuntimeDirectMl;
         }
 
-        private static string ResolveModelPath(DetectorBackend backend)
+        private static string ResolveDirectMlModelPath()
         {
-            string[] candidates = backend == DetectorBackend.TensorRt
-                ? TensorRtModelCandidates
-                : DirectMlModelCandidates;
-
-            string? existingFile = FindExistingFile(candidates);
-            return existingFile ?? Path.Combine(AppContext.BaseDirectory, candidates[0]);
+            string? existingFile = FindExistingFile(DirectMlModelCandidates);
+            return existingFile ?? Path.Combine(AppContext.BaseDirectory, DirectMlModelCandidates[0]);
         }
 
-        private static string? ResolveTensorRtEnginePath(string resolvedModelPath)
+        private static string? ResolveTensorRtEnginePath()
         {
             string? enginePath = FindExistingFile(TensorRtEngineCandidates);
             if (!string.IsNullOrWhiteSpace(enginePath))
@@ -532,8 +549,7 @@ namespace YOLOForAim
                 return enginePath;
             }
 
-            string modelBasedEnginePath = Path.ChangeExtension(resolvedModelPath, ".engine");
-            return File.Exists(modelBasedEnginePath) ? modelBasedEnginePath : null;
+            return null;
         }
 
         private static string? FindExistingFile(IEnumerable<string> candidateFileNames)
@@ -1243,7 +1259,8 @@ namespace YOLOForAim
 
                 cmbInferenceBackend.SelectedIndex = settings.InferenceBackend switch
                 {
-                    nameof(DetectorBackend.TensorRt) => 1,
+                    nameof(DetectorBackend.TensorRtEngine) => 1,
+                    "TensorRt" => 1,
                     _ => 0
                 };
                 chkCenterRoi.Checked = settings.CenterRoiOnly;
