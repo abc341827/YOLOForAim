@@ -634,7 +634,7 @@ namespace YOLOForAim
                 smoothedTargetScreenPoint = LerpPoint(smoothedTargetScreenPoint.Value, stabilizedTargetPoint, currentAimTargetTrackingBlend);
             }
 
-            PointF targetPointForMove = smoothedTargetScreenPoint.Value;
+            PointF targetPointForMove = stabilizedTargetPoint;
             float rawMoveX = targetPointForMove.X - cursorPosition.X;
             float rawMoveY = targetPointForMove.Y - cursorPosition.Y;
             float distanceToAimPoint = MathF.Sqrt((rawMoveX * rawMoveX) + (rawMoveY * rawMoveY));
