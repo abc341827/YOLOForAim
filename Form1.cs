@@ -40,10 +40,12 @@ namespace YOLOForAim
         private const int AimReacquireAfterLargePullFrames = 2;
         private const int AimReacquireAfterLargePullMs = 90;
         private static readonly string UiSettingsFilePath = Path.Combine(AppContext.BaseDirectory, "ui-settings.json");
+        private static readonly string[] DirectMlModelCandidates = ["exp.onnx", "dawn.onnx", "dawn01.onnx"];
+        private static readonly string[] TensorRtModelCandidates = ["dawn.onnx", "dawn01.onnx", "exp.onnx"];
+        private static readonly string[] TensorRtEngineCandidates = ["dawn2.engine", "dawn.engine"];
 
         private IntPtr selectedHwnd = IntPtr.Zero;
         private bool hotKeyRegistered;
-        private readonly string modelPath = Path.Combine(AppContext.BaseDirectory, "exp.onnx");
         private CancellationTokenSource? detectionCancellationTokenSource;
         private Task? captureTask;
         private Task? inferenceTask;
@@ -123,6 +125,8 @@ namespace YOLOForAim
             numAimFeedbackFrameDelay.Value = DefaultAimFeedbackFrameDelay;
             numAimStopInsideBoxArea.Value = DefaultAimStopInsideBoxAreaPercent;
             numScoreThreshold.Value = 35;
+            cmbInferenceBackend.SelectedIndex = 0;
+            UpdateInferenceBackendUi();
             LoadUiSettings();
         }
 
@@ -160,16 +164,26 @@ namespace YOLOForAim
                 return;
             }
 
-            if (!File.Exists(modelPath))
+            DetectorBackend selectedBackend = GetSelectedBackend();
+            string resolvedModelPath = ResolveModelPath(selectedBackend);
+            string? tensorRtEnginePath = selectedBackend == DetectorBackend.TensorRt ? ResolveTensorRtEnginePath(resolvedModelPath) : null;
+
+            if (!File.Exists(resolvedModelPath))
             {
-                MessageBox.Show($"未找到模型文件: {modelPath}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"未找到模型文件: {resolvedModelPath}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
             try
             {
                 yoloDetector?.Dispose();
-                yoloDetector = new YoloDetector(modelPath, new DetectorOptions(chkPreferGpu.Checked, (float)numScoreThreshold.Value / 100f));
+                yoloDetector = new YoloDetector(
+                    resolvedModelPath,
+                    new DetectorOptions(
+                        selectedBackend,
+                        chkPreferGpu.Checked,
+                        (float)numScoreThreshold.Value / 100f,
+                        tensorRtEnginePath));
                 windowCapture?.Dispose();
                 windowCapture = new DesktopDuplicationCapture(selectedHwnd);
             }
@@ -202,7 +216,7 @@ namespace YOLOForAim
             currentAimMoveCooldownMs = (int)numAimMoveCooldown.Value;
             currentAimFeedbackFrameDelay = Math.Max(0, (int)numAimFeedbackFrameDelay.Value);
             currentAimStopInsideBoxAreaRatio = (float)numAimStopInsideBoxArea.Value / 100f;
-            txtDiagnostics.Text = "YOLO FPS: 0.0";
+            txtDiagnostics.Text = yoloDetector?.ModelSummary ?? "YOLO FPS: 0.0";
             ClearOverlayState();
             EnsureDetectionOverlay();
             overlayRefreshTimer.Start();
@@ -213,7 +227,11 @@ namespace YOLOForAim
 
             btnStartDetection.Enabled = false;
             btnStopDetection.Enabled = true;
-            lblStatus.Text = $"检测中... ROI={(currentCenterRoiOnly ? $"中心 {currentRoiSize}" : "全窗口")}, 已关闭内置预览";
+            string backendText = selectedBackend == DetectorBackend.TensorRt ? "TensorRT" : "ONNX Runtime / DirectML";
+            string engineText = selectedBackend == DetectorBackend.TensorRt
+                ? $", engine={(tensorRtEnginePath is null ? "自动构建" : Path.GetFileName(tensorRtEnginePath))}"
+                : string.Empty;
+            lblStatus.Text = $"检测中... 后端={backendText}, 模型={Path.GetFileName(resolvedModelPath)}{engineText}, ROI={(currentCenterRoiOnly ? $"中心 {currentRoiSize}" : "全窗口")}";
         }
 
         private async Task ToggleDetectionAsync()
@@ -465,6 +483,71 @@ namespace YOLOForAim
 
             lblStatus.Text = $"检测中，目标数: {detectionCount}";
             txtDiagnostics.Text = $"YOLO FPS: {currentInferenceFps:F1}";
+        }
+
+        private void cmbInferenceBackend_SelectedIndexChanged(object? sender, EventArgs e)
+        {
+            UpdateInferenceBackendUi();
+        }
+
+        private void UpdateInferenceBackendUi()
+        {
+            bool isTensorRt = GetSelectedBackend() == DetectorBackend.TensorRt;
+            chkPreferGpu.Checked = isTensorRt || chkPreferGpu.Checked;
+            chkPreferGpu.Enabled = !isTensorRt;
+            chkPreferGpu.Text = isTensorRt ? "TensorRT 模式固定使用 GPU" : "优先使用 GPU(DML)";
+
+            if (captureTask is null && inferenceTask is null)
+            {
+                string modelPath = ResolveModelPath(GetSelectedBackend());
+                string? enginePath = isTensorRt ? ResolveTensorRtEnginePath(modelPath) : null;
+                lblStatus.Text = isTensorRt
+                    ? $"TensorRT 待命: ONNX={Path.GetFileName(modelPath)}, engine={(enginePath is null ? "自动构建" : Path.GetFileName(enginePath))}"
+                    : $"DirectML 待命: ONNX={Path.GetFileName(modelPath)}";
+            }
+        }
+
+        private DetectorBackend GetSelectedBackend()
+        {
+            return cmbInferenceBackend.SelectedIndex == 1
+                ? DetectorBackend.TensorRt
+                : DetectorBackend.OnnxRuntimeDirectMl;
+        }
+
+        private static string ResolveModelPath(DetectorBackend backend)
+        {
+            string[] candidates = backend == DetectorBackend.TensorRt
+                ? TensorRtModelCandidates
+                : DirectMlModelCandidates;
+
+            string? existingFile = FindExistingFile(candidates);
+            return existingFile ?? Path.Combine(AppContext.BaseDirectory, candidates[0]);
+        }
+
+        private static string? ResolveTensorRtEnginePath(string resolvedModelPath)
+        {
+            string? enginePath = FindExistingFile(TensorRtEngineCandidates);
+            if (!string.IsNullOrWhiteSpace(enginePath))
+            {
+                return enginePath;
+            }
+
+            string modelBasedEnginePath = Path.ChangeExtension(resolvedModelPath, ".engine");
+            return File.Exists(modelBasedEnginePath) ? modelBasedEnginePath : null;
+        }
+
+        private static string? FindExistingFile(IEnumerable<string> candidateFileNames)
+        {
+            foreach (string candidateFileName in candidateFileNames)
+            {
+                string candidatePath = Path.Combine(AppContext.BaseDirectory, candidateFileName);
+                if (File.Exists(candidatePath))
+                {
+                    return candidatePath;
+                }
+            }
+
+            return null;
         }
 
         private Rectangle GetSourceRegion(int frameWidth, int frameHeight)
@@ -1158,6 +1241,11 @@ namespace YOLOForAim
                     return;
                 }
 
+                cmbInferenceBackend.SelectedIndex = settings.InferenceBackend switch
+                {
+                    nameof(DetectorBackend.TensorRt) => 1,
+                    _ => 0
+                };
                 chkCenterRoi.Checked = settings.CenterRoiOnly;
                 SetNumericValue(numRoiSize, settings.RoiSize);
                 chkPreferGpu.Checked = settings.PreferGpu;
@@ -1206,7 +1294,8 @@ namespace YOLOForAim
                     (int)numAimCloseRangeSlowdown.Value,
                     (int)numAimMoveCooldown.Value,
                     (int)numAimFeedbackFrameDelay.Value,
-                    (int)numAimStopInsideBoxArea.Value);
+                    (int)numAimStopInsideBoxArea.Value,
+                    GetSelectedBackend().ToString());
 
                 string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(UiSettingsFilePath, json);
@@ -1325,7 +1414,8 @@ namespace YOLOForAim
             int AimCloseRangeSlowdownPixels = DefaultAimCloseRangeSlowdownPixels,
             int AimMoveCooldownMs = DefaultAimMoveCooldownMs,
             int AimFeedbackFrameDelay = DefaultAimFeedbackFrameDelay,
-            int AimStopInsideBoxAreaPercent = DefaultAimStopInsideBoxAreaPercent);
+            int AimStopInsideBoxAreaPercent = DefaultAimStopInsideBoxAreaPercent,
+            string InferenceBackend = nameof(DetectorBackend.OnnxRuntimeDirectMl));
 
         private sealed record TargetCandidate(DetectionResult Detection, PointF TargetPoint, double DistanceSquared);
         #endregion

@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.18.1" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu" Version="1.18.1" />
     <PackageReference Include="System.Numerics.Tensors" Version="8.0.0" />
     <PackageReference Include="Vortice.Direct3D11" Version="3.6.2" />
     <PackageReference Include="Vortice.DXGI" Version="3.6.2" />
@@ -23,6 +24,12 @@
     </None>
     <None Update="exp.onnx">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="dawn01.onnx">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="dawn2.engine">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
 </Project>

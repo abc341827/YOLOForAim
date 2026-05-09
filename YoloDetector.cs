@@ -17,11 +17,15 @@ internal sealed class YoloDetector : IDisposable
     private readonly string executionProvider;
     private readonly string executionProviderDetails;
     private readonly float scoreThreshold;
+    private readonly DetectorBackend backend;
+    private readonly string? tensorRtEnginePath;
 
     public string ModelSummary { get; }
 
     public YoloDetector(string modelPath, DetectorOptions detectorOptions)
     {
+        backend = detectorOptions.Backend;
+        tensorRtEnginePath = detectorOptions.TensorRtEnginePath;
         scoreThreshold = detectorOptions.ScoreThreshold;
 
         var sessionOptions = new SessionOptions
@@ -29,7 +33,7 @@ internal sealed class YoloDetector : IDisposable
             GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL
         };
 
-        (executionProvider, executionProviderDetails) = ConfigureExecutionProvider(sessionOptions, detectorOptions.PreferGpu);
+        (executionProvider, executionProviderDetails) = ConfigureExecutionProvider(sessionOptions, detectorOptions, modelPath);
 
         session = new InferenceSession(modelPath, sessionOptions);
         inputName = session.InputMetadata.Keys.First();
@@ -69,9 +73,14 @@ internal sealed class YoloDetector : IDisposable
         session.Dispose();
     }
 
-    private static (string Provider, string Details) ConfigureExecutionProvider(SessionOptions sessionOptions, bool preferGpu)
+    private static (string Provider, string Details) ConfigureExecutionProvider(SessionOptions sessionOptions, DetectorOptions detectorOptions, string modelPath)
     {
-        if (!preferGpu)
+        if (detectorOptions.Backend == DetectorBackend.TensorRt)
+        {
+            return ConfigureTensorRtExecutionProvider(sessionOptions, detectorOptions, modelPath);
+        }
+
+        if (!detectorOptions.PreferGpu)
         {
             return ("CPU", "未勾选 GPU 优先，当前使用 CPU。");
         }
@@ -85,6 +94,63 @@ internal sealed class YoloDetector : IDisposable
         {
             return ("CPU(DirectML不可用，已回退)", ex.Message);
         }
+    }
+
+    private static (string Provider, string Details) ConfigureTensorRtExecutionProvider(SessionOptions sessionOptions, DetectorOptions detectorOptions, string modelPath)
+    {
+        string enginePath = detectorOptions.TensorRtEnginePath ?? string.Empty;
+        string engineCachePath = ResolveTensorRtCachePath(modelPath, enginePath);
+
+        try
+        {
+            Directory.CreateDirectory(engineCachePath);
+
+            using var tensorRtOptions = new OrtTensorRTProviderOptions();
+            tensorRtOptions.UpdateOptions(new Dictionary<string, string>
+            {
+                ["device_id"] = "0",
+                ["trt_fp16_enable"] = "1",
+                ["trt_engine_cache_enable"] = "1",
+                ["trt_engine_cache_path"] = engineCachePath.Replace('\\', '/'),
+                ["trt_dump_subgraphs"] = "0"
+            });
+
+            sessionOptions.AppendExecutionProvider_Tensorrt(tensorRtOptions);
+            sessionOptions.AppendExecutionProvider_CUDA(0);
+
+            string engineMessage = File.Exists(enginePath)
+                ? $"检测到 engine 文件: {Path.GetFileName(enginePath)}，将使用其所在目录作为 TensorRT 缓存目录。"
+                : "未检测到预置 engine，将由 TensorRT 首次构建缓存。";
+
+            return ("TensorRT(GPU)", $"TensorRT 初始化成功。{engineMessage} 缓存目录: {engineCachePath}");
+        }
+        catch (Exception tensorRtEx)
+        {
+            try
+            {
+                sessionOptions.AppendExecutionProvider_DML(0);
+                return ("DirectML(GPU, TensorRT初始化失败后回退)", tensorRtEx.Message);
+            }
+            catch (Exception directMlEx)
+            {
+                return ("CPU(TensorRT/DirectML不可用，已回退)", $"TensorRT: {tensorRtEx.Message} | DirectML: {directMlEx.Message}");
+            }
+        }
+    }
+
+    private static string ResolveTensorRtCachePath(string modelPath, string enginePath)
+    {
+        if (!string.IsNullOrWhiteSpace(enginePath))
+        {
+            string? engineDirectory = Path.GetDirectoryName(enginePath);
+            if (!string.IsNullOrWhiteSpace(engineDirectory))
+            {
+                return engineDirectory;
+            }
+        }
+
+        string modelDirectory = Path.GetDirectoryName(modelPath) ?? AppContext.BaseDirectory;
+        return Path.Combine(modelDirectory, "trt-engine-cache");
     }
 
     private List<NamedOnnxValue> CreateInputs(float[] tensorData)
@@ -517,6 +583,7 @@ internal sealed class YoloDetector : IDisposable
             "模型自检信息",
             $"输入: {inputName}",
             $"输入类型: {inputElementType}",
+            $"后端: {GetBackendLabel()}",
             $"执行设备: {executionProvider}",
             $"设备说明: {executionProviderDetails}",
             $"检测阈值: {scoreThreshold:0.00}",
@@ -530,8 +597,22 @@ internal sealed class YoloDetector : IDisposable
             lines.Add($"- {output.Key}: {output.Value.ElementDataType} [{FormatDimensions(output.Value.Dimensions)}]");
         }
 
+        if (!string.IsNullOrWhiteSpace(tensorRtEnginePath))
+        {
+            lines.Add($"TensorRT engine: {tensorRtEnginePath}");
+        }
+
         lines.Add("解析顺序: 多输出 End-to-End -> 单输出 6 列 End-to-End -> 原始 YOLO 输出");
         return string.Join(Environment.NewLine, lines);
+    }
+
+    private string GetBackendLabel()
+    {
+        return backend switch
+        {
+            DetectorBackend.TensorRt => "TensorRT",
+            _ => "ONNX Runtime / DirectML"
+        };
     }
 
     private static string FormatDimensions(IReadOnlyList<int> dimensions)
@@ -582,4 +663,10 @@ internal sealed class YoloDetector : IDisposable
 
 internal sealed record DetectionResult(RectangleF Box, float Score, int ClassId, string Label);
 internal sealed record DetectionRunResult(IReadOnlyList<DetectionResult> Detections);
-internal sealed record DetectorOptions(bool PreferGpu, float ScoreThreshold);
+internal enum DetectorBackend
+{
+    OnnxRuntimeDirectMl,
+    TensorRt
+}
+
+internal sealed record DetectorOptions(DetectorBackend Backend, bool PreferGpu, float ScoreThreshold, string? TensorRtEnginePath = null);

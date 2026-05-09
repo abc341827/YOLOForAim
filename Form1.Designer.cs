@@ -69,6 +69,8 @@
             this.numAimStopInsideBoxArea = new System.Windows.Forms.NumericUpDown();
             this.chkOverlayEnabled = new System.Windows.Forms.CheckBox();
             this.lblParameterHint = new System.Windows.Forms.Label();
+            this.lblInferenceBackend = new System.Windows.Forms.Label();
+            this.cmbInferenceBackend = new System.Windows.Forms.ComboBox();
             this.lblHandle = new System.Windows.Forms.Label();
             this.lblStatus = new System.Windows.Forms.Label();
             this.pictureBoxPreview = new System.Windows.Forms.PictureBox();
@@ -652,6 +654,30 @@
             this.lblParameterHint.TabIndex = 36;
             this.lblParameterHint.Text = "参数说明：将鼠标停留在按钮或输入框上可查看用途。新增反馈抑制参数可减少乱飘。";
             // 
+            // lblInferenceBackend
+            // 
+            this.lblInferenceBackend.AutoSize = true;
+            this.lblInferenceBackend.Location = new System.Drawing.Point(390, 51);
+            this.lblInferenceBackend.Name = "lblInferenceBackend";
+            this.lblInferenceBackend.Size = new System.Drawing.Size(59, 15);
+            this.lblInferenceBackend.TabIndex = 37;
+            this.lblInferenceBackend.Text = "推理后端";
+            this.toolTipDescriptions.SetToolTip(this.lblInferenceBackend, "可在现有 ONNX Runtime / DirectML 与新增 TensorRT 之间切换。");
+            // 
+            // cmbInferenceBackend
+            // 
+            this.cmbInferenceBackend.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cmbInferenceBackend.FormattingEnabled = true;
+            this.cmbInferenceBackend.Items.AddRange(new object[] {
+            "ONNX Runtime / DirectML",
+            "TensorRT"});
+            this.cmbInferenceBackend.Location = new System.Drawing.Point(457, 48);
+            this.cmbInferenceBackend.Name = "cmbInferenceBackend";
+            this.cmbInferenceBackend.Size = new System.Drawing.Size(191, 23);
+            this.cmbInferenceBackend.TabIndex = 38;
+            this.toolTipDescriptions.SetToolTip(this.cmbInferenceBackend, "切换识别后端。TensorRT 模式会优先使用 dawn.onnx 与 engine 缓存目录。");
+            this.cmbInferenceBackend.SelectedIndexChanged += new System.EventHandler(this.cmbInferenceBackend_SelectedIndexChanged);
+            // 
             // lblHandle
             // 
             this.lblHandle.AutoSize = true;
@@ -697,6 +723,8 @@
             ClientSize = new Size(800, 780);
             Controls.Add(this.txtDiagnostics);
             Controls.Add(this.pictureBoxPreview);
+            Controls.Add(this.cmbInferenceBackend);
+            Controls.Add(this.lblInferenceBackend);
             Controls.Add(this.numAimStopInsideBoxArea);
             Controls.Add(this.lblAimStopInsideBoxArea);
             Controls.Add(this.chkOverlayEnabled);
@@ -800,6 +828,8 @@
         private System.Windows.Forms.NumericUpDown numAimStopInsideBoxArea;
         private System.Windows.Forms.CheckBox chkOverlayEnabled;
         private System.Windows.Forms.Label lblParameterHint;
+        private System.Windows.Forms.Label lblInferenceBackend;
+        private System.Windows.Forms.ComboBox cmbInferenceBackend;
         private System.Windows.Forms.Label lblHandle;
         private System.Windows.Forms.Label lblStatus;
         private System.Windows.Forms.PictureBox pictureBoxPreview;
