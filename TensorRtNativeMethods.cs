@@ -17,6 +17,7 @@ internal static class TensorRtNativeMethods
         int tensorInfoCapacity,
         out int tensorCount,
         out IntPtr detectorHandle,
+        [MarshalAs(UnmanagedType.LPStr)]
         StringBuilder errorBuffer,
         int errorBufferCapacity);
 
@@ -28,6 +29,7 @@ internal static class TensorRtNativeMethods
         IntPtr detectorHandle,
         [In] float[] inputData,
         long inputElementCount,
+        [MarshalAs(UnmanagedType.LPStr)]
         StringBuilder errorBuffer,
         int errorBufferCapacity);
 
@@ -37,6 +39,7 @@ internal static class TensorRtNativeMethods
         int outputIndex,
         [Out] float[] destination,
         long destinationElementCount,
+        [MarshalAs(UnmanagedType.LPStr)]
         StringBuilder errorBuffer,
         int errorBufferCapacity);
 
