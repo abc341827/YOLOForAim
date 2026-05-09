@@ -39,11 +39,11 @@ namespace YOLOForAim
         private const float AimLargePullDistancePixels = 72f;
         private const int AimReacquireAfterLargePullFrames = 2;
         private const int AimReacquireAfterLargePullMs = 90;
-        private const int OverlayDetectionHoldMs = 90;
-        private const float OverlayDetectionMinIou = 0.35f;
-        private const float OverlayDetectionPositionBlend = 0.4f;
-        private const float OverlayDetectionSizeBlend = 0.22f;
-        private const float OverlayDetectionMaxGrowthPerFrameRatio = 0.18f;
+        private const float OverlayTrackMaxSpeedPixelsPerSecond = 900f;
+        private const float OverlayTrackMinMatchDistancePixels = 18f;
+        private const float OverlayTrackMinIou = 0.18f;
+        private const float OverlayTrackPositionBlend = 0.65f;
+        private const float OverlayTrackSizeBlend = 0.55f;
         private static readonly string UiSettingsFilePath = Path.Combine(AppContext.BaseDirectory, "ui-settings.json");
         private static readonly string[] DirectMlModelCandidates = ["exp.onnx", "dawn.onnx", "dawn01.onnx"];
         private static readonly string[] TensorRtEngineCandidates = ["dawn2.engine", "dawn.engine"];
@@ -67,8 +67,8 @@ namespace YOLOForAim
         private int latestCapturedFrameVersion;
         private Rectangle latestOverlayCaptureBounds;
         private DetectionResult[] latestOverlayDetections = Array.Empty<DetectionResult>();
-        private DetectionResult[] stableOverlayDetections = Array.Empty<DetectionResult>();
-        private long stableOverlayDetectionsTick;
+        private OverlayTrack[] overlayTracks = Array.Empty<OverlayTrack>();
+        private long overlayTracksTick;
         private readonly System.Windows.Forms.Timer overlayRefreshTimer;
         private DetectionOverlayForm? detectionOverlay;
         private bool currentCenterRoiOnly;
@@ -501,7 +501,7 @@ namespace YOLOForAim
                 previousImage?.Dispose();
             }
 
-            lblStatus.Text = $"检测中，目标数: {detectionCount}";
+            lblStatus.Text = $"检测中，目标数: {detectionCount}，YOLO FPS: {currentInferenceFps:F1}";
             UpdateDiagnosticsText();
         }
 
@@ -643,13 +643,14 @@ namespace YOLOForAim
                 return Array.Empty<DetectionResult>();
             }
 
-            IReadOnlyList<DetectionResult> smoothedDetections = StabilizeOverlayDetections(detections);
-            if (smoothedDetections.Count == 0 || stabilizedLockedDetection is null)
+            IReadOnlyList<DetectionResult> trackedDetections = TrackOverlayDetections(detections);
+
+            if (trackedDetections.Count == 0 || stabilizedLockedDetection is null)
             {
-                return smoothedDetections;
+                return trackedDetections;
             }
 
-            DetectionResult[] overlayDetections = smoothedDetections.ToArray();
+            DetectionResult[] overlayDetections = trackedDetections.ToArray();
             PointF stabilizedTargetPoint = GetAimPoint(captureBounds, stabilizedLockedDetection);
             int replaceIndex = -1;
             double bestDistanceSquared = double.MaxValue;
@@ -677,120 +678,91 @@ namespace YOLOForAim
                 return overlayDetections;
             }
 
-            return smoothedDetections;
+            return trackedDetections;
         }
 
-        private IReadOnlyList<DetectionResult> StabilizeOverlayDetections(IReadOnlyList<DetectionResult> detections)
+        private IReadOnlyList<DetectionResult> TrackOverlayDetections(IReadOnlyList<DetectionResult> detections)
         {
             long now = Environment.TickCount64;
             if (detections.Count == 0)
             {
-                if (stableOverlayDetections.Length > 0 && (now - stableOverlayDetectionsTick) <= OverlayDetectionHoldMs)
-                {
-                    return stableOverlayDetections;
-                }
-
-                stableOverlayDetections = Array.Empty<DetectionResult>();
-                return stableOverlayDetections;
+                overlayTracks = Array.Empty<OverlayTrack>();
+                overlayTracksTick = now;
+                return Array.Empty<DetectionResult>();
             }
 
-            if (stableOverlayDetections.Length == 0)
-            {
-                stableOverlayDetections = detections.ToArray();
-                stableOverlayDetectionsTick = now;
-                return stableOverlayDetections;
-            }
-
-            var nextStableDetections = new DetectionResult[detections.Count];
-            var usedStableIndexes = new HashSet<int>();
+            double deltaSeconds = overlayTracksTick > 0
+                ? Math.Max(0.001d, (now - overlayTracksTick) / 1000d)
+                : 1d / Math.Max(1d, currentInferenceFps > 1d ? currentInferenceFps : 120d);
+            float maxMatchDistance = Math.Max(OverlayTrackMinMatchDistancePixels, (float)(OverlayTrackMaxSpeedPixelsPerSecond * deltaSeconds));
+            DetectionResult[] trackedDetections = new DetectionResult[detections.Count];
+            var matchedTrackIndexes = new HashSet<int>();
 
             for (int detectionIndex = 0; detectionIndex < detections.Count; detectionIndex++)
             {
-                DetectionResult currentDetection = detections[detectionIndex];
-                int matchedStableIndex = -1;
-                float bestIou = 0f;
+                DetectionResult detection = detections[detectionIndex];
+                int matchedTrackIndex = -1;
                 double bestDistanceSquared = double.MaxValue;
 
-                for (int stableIndex = 0; stableIndex < stableOverlayDetections.Length; stableIndex++)
+                for (int trackIndex = 0; trackIndex < overlayTracks.Length; trackIndex++)
                 {
-                    if (usedStableIndexes.Contains(stableIndex))
+                    if (matchedTrackIndexes.Contains(trackIndex))
                     {
                         continue;
                     }
 
-                    DetectionResult previousDetection = stableOverlayDetections[stableIndex];
-                    if (previousDetection.ClassId != currentDetection.ClassId)
+                    OverlayTrack track = overlayTracks[trackIndex];
+                    if (track.Detection.ClassId != detection.ClassId)
                     {
                         continue;
                     }
 
-                    float iou = CalculateIou(previousDetection.Box, currentDetection.Box);
-                    PointF previousCenter = GetBoxCenter(previousDetection.Box);
-                    PointF currentCenter = GetBoxCenter(currentDetection.Box);
+                    PointF previousCenter = GetBoxCenter(track.Detection.Box);
+                    PointF currentCenter = GetBoxCenter(detection.Box);
                     double distanceSquared = GetDistanceSquared(previousCenter, currentCenter);
-
-                    if (iou < OverlayDetectionMinIou && distanceSquared > (StableTargetPositionTolerancePixels * StableTargetPositionTolerancePixels))
+                    float iou = CalculateIou(track.Detection.Box, detection.Box);
+                    if (distanceSquared > (maxMatchDistance * maxMatchDistance) && iou < OverlayTrackMinIou)
                     {
                         continue;
                     }
 
-                    bool isBetterMatch = iou > bestIou || (Math.Abs(iou - bestIou) < 0.0001f && distanceSquared < bestDistanceSquared);
-                    if (!isBetterMatch)
+                    if (distanceSquared < bestDistanceSquared)
                     {
-                        continue;
+                        bestDistanceSquared = distanceSquared;
+                        matchedTrackIndex = trackIndex;
                     }
-
-                    matchedStableIndex = stableIndex;
-                    bestIou = iou;
-                    bestDistanceSquared = distanceSquared;
                 }
 
-                if (matchedStableIndex >= 0)
+                DetectionResult trackedDetection = matchedTrackIndex >= 0
+                    ? UpdateTrackedOverlayDetection(overlayTracks[matchedTrackIndex].Detection, detection)
+                    : detection;
+
+                if (matchedTrackIndex >= 0)
                 {
-                    usedStableIndexes.Add(matchedStableIndex);
+                    matchedTrackIndexes.Add(matchedTrackIndex);
                 }
 
-                nextStableDetections[detectionIndex] = matchedStableIndex >= 0
-                    ? SmoothOverlayDetection(stableOverlayDetections[matchedStableIndex], currentDetection)
-                    : currentDetection;
+                trackedDetections[detectionIndex] = trackedDetection;
             }
 
-            stableOverlayDetections = nextStableDetections;
-            stableOverlayDetectionsTick = now;
-            return stableOverlayDetections;
+            overlayTracks = trackedDetections.Select(detection => new OverlayTrack(detection, now)).ToArray();
+            overlayTracksTick = now;
+            return trackedDetections;
         }
 
-        private static DetectionResult SmoothOverlayDetection(DetectionResult previousDetection, DetectionResult currentDetection)
+        private static DetectionResult UpdateTrackedOverlayDetection(DetectionResult previousDetection, DetectionResult currentDetection)
         {
             PointF previousCenter = GetBoxCenter(previousDetection.Box);
             PointF currentCenter = GetBoxCenter(currentDetection.Box);
-            PointF smoothedCenter = LerpPoint(previousCenter, currentCenter, OverlayDetectionPositionBlend);
+            PointF trackedCenter = LerpPoint(previousCenter, currentCenter, OverlayTrackPositionBlend);
+            SizeF trackedSize = LerpSize(previousDetection.Box.Size, currentDetection.Box.Size, OverlayTrackSizeBlend);
+            RectangleF trackedBox = CreateCenteredBox(trackedCenter, trackedSize);
 
-            SizeF previousSize = previousDetection.Box.Size;
-            SizeF currentSize = currentDetection.Box.Size;
-            SizeF blendedSize = LerpSize(previousSize, currentSize, OverlayDetectionSizeBlend);
-            SizeF smoothedSize = new(
-                ClampOverlayGrowth(previousSize.Width, blendedSize.Width),
-                ClampOverlayGrowth(previousSize.Height, blendedSize.Height));
-
-            RectangleF smoothedBox = CreateCenteredBox(smoothedCenter, smoothedSize);
             return currentDetection with
             {
-                Box = smoothedBox,
+                Box = trackedBox,
                 Score = Math.Max(previousDetection.Score, currentDetection.Score)
             };
-        }
-
-        private static float ClampOverlayGrowth(float previousSize, float blendedSize)
-        {
-            if (previousSize <= 1f)
-            {
-                return blendedSize;
-            }
-
-            float minSize = previousSize * (1f - OverlayDetectionMaxGrowthPerFrameRatio);
-            float maxSize = previousSize * (1f + OverlayDetectionMaxGrowthPerFrameRatio);
-            return Math.Clamp(blendedSize, minSize, maxSize);
         }
 
         private void ClearOverlayState()
@@ -799,8 +771,8 @@ namespace YOLOForAim
             {
                 latestOverlayCaptureBounds = Rectangle.Empty;
                 latestOverlayDetections = Array.Empty<DetectionResult>();
-                stableOverlayDetections = Array.Empty<DetectionResult>();
-                stableOverlayDetectionsTick = 0;
+                overlayTracks = Array.Empty<OverlayTrack>();
+                overlayTracksTick = 0;
             }
         }
 
@@ -1560,6 +1532,8 @@ namespace YOLOForAim
         private sealed record TargetCandidate(DetectionResult Detection, PointF TargetPoint, double DistanceSquared);
         #endregion
     }
+
+    internal sealed record OverlayTrack(DetectionResult Detection, long Timestamp);
 
     internal class OverlayForm : Form
     {
