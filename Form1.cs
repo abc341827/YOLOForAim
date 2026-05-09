@@ -24,6 +24,13 @@ namespace YOLOForAim
         private const float AimHeightHighConfidenceBlend = 0.45f;
         private const float AimHeightLowConfidenceBlend = 0.12f;
         private const float AimHeightLowConfidenceMinRatio = 0.92f;
+        private const float StableTargetConfidenceThreshold = 0.7f;
+        private const float StableTargetPositionTolerancePixels = 18f;
+        private const float StableTargetPositionBlend = 0.45f;
+        private const int StableTargetConfirmationFrames = 2;
+        private const int StableTargetSizeHoldMs = 180;
+        private const float StableTargetSizeUpdateCenterOffsetPixels = 28f;
+        private const float StableTargetSizeBlend = 0.22f;
         private static readonly string UiSettingsFilePath = Path.Combine(AppContext.BaseDirectory, "ui-settings.json");
 
         private IntPtr selectedHwnd = IntPtr.Zero;
@@ -72,6 +79,10 @@ namespace YOLOForAim
         private int lastPendingCompensationFrameVersion = -1;
         private float stabilizedAimTargetHeight;
         private PointF pendingAimCompensation;
+        private DetectionResult? stabilizedLockedDetection;
+        private int stabilizedLockedDetectionFrames;
+        private bool hasAppliedInitialLockPull;
+        private long stableTargetSizeHoldUntilTick;
 
         public Form1()
         {
@@ -396,7 +407,7 @@ namespace YOLOForAim
                             sourceRegion) ?? new DetectionRunResult(Array.Empty<DetectionResult>());
                         detectStopwatch.Stop();
                         TryMoveMouseToNearestDetection(result.Detections, frameToProcess.ScreenBounds, processedVersion);
-                        UpdateOverlayState(frameToProcess.ScreenBounds, result.Detections);
+                        UpdateOverlayState(frameToProcess.ScreenBounds, BuildOverlayDetections(result.Detections, frameToProcess.ScreenBounds));
                         processedFrameCounter++;
                         UpdateInferenceFps(detectStopwatch.Elapsed.TotalMilliseconds);
 
@@ -504,6 +515,44 @@ namespace YOLOForAim
             }
         }
 
+        private IReadOnlyList<DetectionResult> BuildOverlayDetections(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds)
+        {
+            if (detections.Count == 0 || stabilizedLockedDetection is null)
+            {
+                return detections;
+            }
+
+            DetectionResult[] overlayDetections = detections.ToArray();
+            PointF stabilizedTargetPoint = GetAimPoint(captureBounds, stabilizedLockedDetection);
+            int replaceIndex = -1;
+            double bestDistanceSquared = double.MaxValue;
+
+            for (int index = 0; index < overlayDetections.Length; index++)
+            {
+                DetectionResult detection = overlayDetections[index];
+                if (detection.ClassId != stabilizedLockedDetection.ClassId)
+                {
+                    continue;
+                }
+
+                PointF targetPoint = GetAimPoint(captureBounds, detection);
+                double distanceSquared = GetDistanceSquared(stabilizedTargetPoint, targetPoint);
+                if (distanceSquared < bestDistanceSquared)
+                {
+                    bestDistanceSquared = distanceSquared;
+                    replaceIndex = index;
+                }
+            }
+
+            if (replaceIndex >= 0 && bestDistanceSquared <= (currentAimLockSwitchDistancePixels * currentAimLockSwitchDistancePixels))
+            {
+                overlayDetections[replaceIndex] = stabilizedLockedDetection;
+                return overlayDetections;
+            }
+
+            return detections;
+        }
+
         private void ClearOverlayState()
         {
             lock (overlayStateLock)
@@ -596,9 +645,9 @@ namespace YOLOForAim
                 return;
             }
 
-            Point cursorPosition = Cursor.Position;
             PointF? previousLockedTargetScreenPoint = lockedTargetScreenPoint;
-            TargetCandidate? nearestDetection = SelectTargetCandidate(detections, captureBounds, cursorPosition);
+            PointF aimReferencePoint = GetAimReferencePoint(captureBounds);
+            TargetCandidate? nearestDetection = SelectTargetCandidate(detections, captureBounds, aimReferencePoint);
 
             if (nearestDetection is null)
             {
@@ -619,11 +668,16 @@ namespace YOLOForAim
                 smoothedTargetScreenPoint is null ||
                 GetDistanceSquared(previousLockedTargetScreenPoint.Value, nearestDetection.TargetPoint) >
                 (currentAimLockSwitchDistancePixels * currentAimLockSwitchDistancePixels);
-            float effectiveAimHeight = GetEffectiveAimHeight(nearestDetection.Detection, resetHeightTracking);
-            PointF stabilizedTargetPoint = GetAimPoint(captureBounds, nearestDetection.Detection, effectiveAimHeight);
+            DetectionResult stabilizedDetection = GetStabilizedDetection(nearestDetection.Detection, captureBounds, resetHeightTracking);
+            float effectiveAimHeight = GetEffectiveAimHeight(stabilizedDetection, resetHeightTracking);
+            PointF stabilizedTargetPoint = GetAimPoint(captureBounds, stabilizedDetection, effectiveAimHeight);
 
             lockedTargetScreenPoint = stabilizedTargetPoint;
             missedTargetFrames = 0;
+            if (resetHeightTracking)
+            {
+                hasAppliedInitialLockPull = false;
+            }
 
             if (resetHeightTracking)
             {
@@ -635,8 +689,8 @@ namespace YOLOForAim
             }
 
             PointF targetPointForMove = stabilizedTargetPoint;
-            float rawMoveX = targetPointForMove.X - cursorPosition.X;
-            float rawMoveY = targetPointForMove.Y - cursorPosition.Y;
+            float rawMoveX = targetPointForMove.X - aimReferencePoint.X;
+            float rawMoveY = targetPointForMove.Y - aimReferencePoint.Y;
             float distanceToAimPoint = MathF.Sqrt((rawMoveX * rawMoveX) + (rawMoveY * rawMoveY));
             if (distanceToAimPoint <= currentAimDeadzonePixels)
             {
@@ -649,18 +703,28 @@ namespace YOLOForAim
                 return;
             }
 
-            float moveX = rawMoveX * currentAimSmoothingFactor * currentAimSpeedMultiplier;
-            float moveY = rawMoveY * currentAimSmoothingFactor * currentAimSpeedMultiplier;
-            float distanceScale = Math.Clamp((distanceToAimPoint - currentAimDeadzonePixels) / currentAimCloseRangeSlowdownPixels, 0.2f, 1f);
-            moveX *= distanceScale;
-            moveY *= distanceScale;
-            float smoothedDistance = MathF.Sqrt((moveX * moveX) + (moveY * moveY));
-            float currentMaxStep = currentAimMaxStepPixels * currentAimSpeedMultiplier;
-            if (smoothedDistance > currentMaxStep)
+            float moveX;
+            float moveY;
+            if (!hasAppliedInitialLockPull)
             {
-                float scale = currentMaxStep / smoothedDistance;
-                moveX *= scale;
-                moveY *= scale;
+                moveX = rawMoveX * currentAimSpeedMultiplier;
+                moveY = rawMoveY * currentAimSpeedMultiplier;
+            }
+            else
+            {
+                moveX = rawMoveX * currentAimSmoothingFactor * currentAimSpeedMultiplier;
+                moveY = rawMoveY * currentAimSmoothingFactor * currentAimSpeedMultiplier;
+                float distanceScale = Math.Clamp((distanceToAimPoint - currentAimDeadzonePixels) / currentAimCloseRangeSlowdownPixels, 0.2f, 1f);
+                moveX *= distanceScale;
+                moveY *= distanceScale;
+                float smoothedDistance = MathF.Sqrt((moveX * moveX) + (moveY * moveY));
+                float currentMaxStep = currentAimMaxStepPixels * currentAimSpeedMultiplier;
+                if (smoothedDistance > currentMaxStep)
+                {
+                    float scale = currentMaxStep / smoothedDistance;
+                    moveX *= scale;
+                    moveY *= scale;
+                }
             }
 
             int finalMoveX = (int)Math.Round(moveX);
@@ -671,6 +735,7 @@ namespace YOLOForAim
             }
 
             SendRelativeMouseMove(finalMoveX, finalMoveY);
+            hasAppliedInitialLockPull = true;
             lastAimMoveTick = now;
             lastAimMoveFrameVersion = processedFrameVersion;
         }
@@ -690,6 +755,83 @@ namespace YOLOForAim
             smoothedTargetScreenPoint = null;
             missedTargetFrames = 0;
             stabilizedAimTargetHeight = 0f;
+            stabilizedLockedDetection = null;
+            stabilizedLockedDetectionFrames = 0;
+            hasAppliedInitialLockPull = false;
+            stableTargetSizeHoldUntilTick = 0;
+        }
+
+        private DetectionResult GetStabilizedDetection(DetectionResult detection, Rectangle captureBounds, bool resetTracking)
+        {
+            long now = Environment.TickCount64;
+            if (resetTracking || stabilizedLockedDetection is null)
+            {
+                stabilizedLockedDetection = detection;
+                stabilizedLockedDetectionFrames = 1;
+                stableTargetSizeHoldUntilTick = now + StableTargetSizeHoldMs;
+                return detection;
+            }
+
+            if (!ShouldKeepStableTarget(stabilizedLockedDetection, detection))
+            {
+                stabilizedLockedDetection = detection;
+                stabilizedLockedDetectionFrames = 1;
+                stableTargetSizeHoldUntilTick = now + StableTargetSizeHoldMs;
+                return detection;
+            }
+
+            stabilizedLockedDetectionFrames++;
+            if (stabilizedLockedDetectionFrames < StableTargetConfirmationFrames)
+            {
+                stabilizedLockedDetection = detection;
+                return detection;
+            }
+
+            PointF previousCenter = GetBoxCenter(stabilizedLockedDetection.Box);
+            PointF currentCenter = GetBoxCenter(detection.Box);
+            PointF stabilizedCenter = LerpPoint(previousCenter, currentCenter, StableTargetPositionBlend);
+            SizeF stabilizedSize = GetStableTargetSize(detection, captureBounds, now);
+            RectangleF stabilizedBox = CreateCenteredBox(stabilizedCenter, stabilizedSize);
+            stabilizedLockedDetection = detection with { Box = stabilizedBox };
+            return stabilizedLockedDetection;
+        }
+
+        private SizeF GetStableTargetSize(DetectionResult detection, Rectangle captureBounds, long now)
+        {
+            if (stabilizedLockedDetection is null)
+            {
+                return detection.Box.Size;
+            }
+
+            SizeF currentStableSize = stabilizedLockedDetection.Box.Size;
+            if (now < stableTargetSizeHoldUntilTick)
+            {
+                return currentStableSize;
+            }
+
+            PointF aimReferencePoint = GetAimReferencePoint(captureBounds);
+            PointF detectionAimPoint = GetAimPoint(captureBounds, detection);
+            if (GetDistanceSquared(aimReferencePoint, detectionAimPoint) <
+                (StableTargetSizeUpdateCenterOffsetPixels * StableTargetSizeUpdateCenterOffsetPixels))
+            {
+                return currentStableSize;
+            }
+
+            stableTargetSizeHoldUntilTick = now + StableTargetSizeHoldMs;
+            return LerpSize(currentStableSize, detection.Box.Size, StableTargetSizeBlend);
+        }
+
+        private static bool ShouldKeepStableTarget(DetectionResult previousDetection, DetectionResult currentDetection)
+        {
+            if (previousDetection.ClassId != currentDetection.ClassId || currentDetection.Score < StableTargetConfidenceThreshold)
+            {
+                return false;
+            }
+
+            PointF previousCenter = GetBoxCenter(previousDetection.Box);
+            PointF currentCenter = GetBoxCenter(currentDetection.Box);
+            return GetDistanceSquared(previousCenter, currentCenter) <=
+                (StableTargetPositionTolerancePixels * StableTargetPositionTolerancePixels);
         }
 
         private float GetEffectiveAimHeight(DetectionResult detection, bool resetHeightTracking)
@@ -724,7 +866,7 @@ namespace YOLOForAim
                 (processedFrameVersion - lastAimMoveFrameVersion) >= currentAimFeedbackFrameDelay;
         }
 
-        private TargetCandidate? SelectTargetCandidate(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, Point cursorPosition)
+        private TargetCandidate? SelectTargetCandidate(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, PointF referencePoint)
         {
             PointF? lockedAnchor = smoothedTargetScreenPoint ?? lockedTargetScreenPoint;
             if (lockedAnchor is not null)
@@ -738,7 +880,7 @@ namespace YOLOForAim
                 return FindNearestTargetCandidate(detections, captureBounds, lockedAnchor.Value);
             }
 
-            return FindNearestTargetCandidate(detections, captureBounds, cursorPosition);
+            return FindNearestTargetCandidate(detections, captureBounds, referencePoint);
         }
 
         private TargetCandidate? FindContainingTargetCandidate(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, PointF referencePoint)
@@ -803,6 +945,13 @@ namespace YOLOForAim
                 captureBounds.Top + detection.Box.Y + (effectiveHeight * currentAimPointHeightRatio));
         }
 
+        private static PointF GetAimReferencePoint(Rectangle captureBounds)
+        {
+            return new PointF(
+                captureBounds.Left + (captureBounds.Width / 2f),
+                captureBounds.Top + (captureBounds.Height / 2f));
+        }
+
         private static bool IsLeftMouseButtonDown()
         {
             return (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
@@ -829,11 +978,32 @@ namespace YOLOForAim
             return (deltaX * deltaX) + (deltaY * deltaY);
         }
 
+        private static PointF GetBoxCenter(RectangleF box)
+        {
+            return new PointF(box.Left + (box.Width / 2f), box.Top + (box.Height / 2f));
+        }
+
+        private static RectangleF CreateCenteredBox(PointF center, SizeF size)
+        {
+            return new RectangleF(
+                center.X - (size.Width / 2f),
+                center.Y - (size.Height / 2f),
+                size.Width,
+                size.Height);
+        }
+
         private static PointF LerpPoint(PointF from, PointF to, float amount)
         {
             return new PointF(
                 from.X + ((to.X - from.X) * amount),
                 from.Y + ((to.Y - from.Y) * amount));
+        }
+
+        private static SizeF LerpSize(SizeF from, SizeF to, float amount)
+        {
+            return new SizeF(
+                from.Width + ((to.Width - from.Width) * amount),
+                from.Height + ((to.Height - from.Height) * amount));
         }
 
         private static float LerpFloat(float from, float to, float amount)
