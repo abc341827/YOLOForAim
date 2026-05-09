@@ -82,10 +82,19 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="cuda_fp16.h" />
+    <ClInclude Include="cuda_runtime_api.h" />
+    <ClInclude Include="NvInfer.h" />
+    <ClInclude Include="NvInferPlugin.h" />
+    <ClInclude Include="NvInferRuntime.h" />
     <ClInclude Include="TensorRtNative.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="TensorRtNative.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <Library Include="nvinfer_10.lib" />
+    <Library Include="nvinfer_plugin_10.lib" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
