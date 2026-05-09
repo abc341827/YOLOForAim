@@ -663,7 +663,7 @@ namespace YOLOForAim
                 latestOverlayLockedDetection = stabilizedLockedDetection;
                 latestOverlayAimPoint = stabilizedLockedDetection is null
                     ? null
-                    : GetAimPoint(captureBounds, stabilizedLockedDetection, Math.Max(1f, stabilizedAimTargetHeight > 0f ? stabilizedAimTargetHeight : stabilizedLockedDetection.Box.Height));
+                    : GetStopLockTargetPoint(captureBounds, stabilizedLockedDetection);
                 latestOverlayCursorPoint = Cursor.Position;
             }
 
@@ -964,7 +964,7 @@ namespace YOLOForAim
                 smoothedTargetScreenPoint = LerpPoint(smoothedTargetScreenPoint.Value, stabilizedTargetPoint, currentAimTargetTrackingBlend);
             }
 
-            PointF targetPointForMove = stabilizedTargetPoint;
+            PointF targetPointForMove = GetStopLockTargetPoint(captureBounds, stabilizedDetection);
             float rawMoveX = targetPointForMove.X - aimReferencePoint.X;
             float rawMoveY = targetPointForMove.Y - aimReferencePoint.Y;
             float distanceToAimPoint = MathF.Sqrt((rawMoveX * rawMoveX) + (rawMoveY * rawMoveY));
@@ -1284,6 +1284,13 @@ namespace YOLOForAim
             RectangleF screenBounds = GetDetectionScreenBounds(captureBounds, detection);
             RectangleF lockSquareBounds = GetLockSquareBounds(screenBounds, squareSizePixels, topOffsetPixels);
             return lockSquareBounds.Contains(aimReferencePoint);
+        }
+
+        private PointF GetStopLockTargetPoint(Rectangle captureBounds, DetectionResult detection)
+        {
+            RectangleF screenBounds = GetDetectionScreenBounds(captureBounds, detection);
+            RectangleF lockSquareBounds = GetLockSquareBounds(screenBounds, currentAimStopLockSquareSizePixels, currentAimStopLockTopOffsetPixels);
+            return GetBoxCenter(lockSquareBounds);
         }
 
         private static RectangleF GetLockSquareBounds(RectangleF bounds, float squareSizePixels, float topOffsetPixels)
