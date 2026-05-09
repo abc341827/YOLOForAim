@@ -39,6 +39,11 @@ namespace YOLOForAim
         private const float AimLargePullDistancePixels = 72f;
         private const int AimReacquireAfterLargePullFrames = 2;
         private const int AimReacquireAfterLargePullMs = 90;
+        private const int OverlayDetectionHoldMs = 90;
+        private const float OverlayDetectionMinIou = 0.35f;
+        private const float OverlayDetectionPositionBlend = 0.4f;
+        private const float OverlayDetectionSizeBlend = 0.22f;
+        private const float OverlayDetectionMaxGrowthPerFrameRatio = 0.18f;
         private static readonly string UiSettingsFilePath = Path.Combine(AppContext.BaseDirectory, "ui-settings.json");
         private static readonly string[] DirectMlModelCandidates = ["exp.onnx", "dawn.onnx", "dawn01.onnx"];
         private static readonly string[] TensorRtEngineCandidates = ["dawn2.engine", "dawn.engine"];
@@ -62,6 +67,8 @@ namespace YOLOForAim
         private int latestCapturedFrameVersion;
         private Rectangle latestOverlayCaptureBounds;
         private DetectionResult[] latestOverlayDetections = Array.Empty<DetectionResult>();
+        private DetectionResult[] stableOverlayDetections = Array.Empty<DetectionResult>();
+        private long stableOverlayDetectionsTick;
         private readonly System.Windows.Forms.Timer overlayRefreshTimer;
         private DetectionOverlayForm? detectionOverlay;
         private bool currentCenterRoiOnly;
@@ -636,12 +643,13 @@ namespace YOLOForAim
                 return Array.Empty<DetectionResult>();
             }
 
-            if (detections.Count == 0 || stabilizedLockedDetection is null)
+            IReadOnlyList<DetectionResult> smoothedDetections = StabilizeOverlayDetections(detections);
+            if (smoothedDetections.Count == 0 || stabilizedLockedDetection is null)
             {
-                return detections;
+                return smoothedDetections;
             }
 
-            DetectionResult[] overlayDetections = detections.ToArray();
+            DetectionResult[] overlayDetections = smoothedDetections.ToArray();
             PointF stabilizedTargetPoint = GetAimPoint(captureBounds, stabilizedLockedDetection);
             int replaceIndex = -1;
             double bestDistanceSquared = double.MaxValue;
@@ -669,7 +677,120 @@ namespace YOLOForAim
                 return overlayDetections;
             }
 
-            return detections;
+            return smoothedDetections;
+        }
+
+        private IReadOnlyList<DetectionResult> StabilizeOverlayDetections(IReadOnlyList<DetectionResult> detections)
+        {
+            long now = Environment.TickCount64;
+            if (detections.Count == 0)
+            {
+                if (stableOverlayDetections.Length > 0 && (now - stableOverlayDetectionsTick) <= OverlayDetectionHoldMs)
+                {
+                    return stableOverlayDetections;
+                }
+
+                stableOverlayDetections = Array.Empty<DetectionResult>();
+                return stableOverlayDetections;
+            }
+
+            if (stableOverlayDetections.Length == 0)
+            {
+                stableOverlayDetections = detections.ToArray();
+                stableOverlayDetectionsTick = now;
+                return stableOverlayDetections;
+            }
+
+            var nextStableDetections = new DetectionResult[detections.Count];
+            var usedStableIndexes = new HashSet<int>();
+
+            for (int detectionIndex = 0; detectionIndex < detections.Count; detectionIndex++)
+            {
+                DetectionResult currentDetection = detections[detectionIndex];
+                int matchedStableIndex = -1;
+                float bestIou = 0f;
+                double bestDistanceSquared = double.MaxValue;
+
+                for (int stableIndex = 0; stableIndex < stableOverlayDetections.Length; stableIndex++)
+                {
+                    if (usedStableIndexes.Contains(stableIndex))
+                    {
+                        continue;
+                    }
+
+                    DetectionResult previousDetection = stableOverlayDetections[stableIndex];
+                    if (previousDetection.ClassId != currentDetection.ClassId)
+                    {
+                        continue;
+                    }
+
+                    float iou = CalculateIou(previousDetection.Box, currentDetection.Box);
+                    PointF previousCenter = GetBoxCenter(previousDetection.Box);
+                    PointF currentCenter = GetBoxCenter(currentDetection.Box);
+                    double distanceSquared = GetDistanceSquared(previousCenter, currentCenter);
+
+                    if (iou < OverlayDetectionMinIou && distanceSquared > (StableTargetPositionTolerancePixels * StableTargetPositionTolerancePixels))
+                    {
+                        continue;
+                    }
+
+                    bool isBetterMatch = iou > bestIou || (Math.Abs(iou - bestIou) < 0.0001f && distanceSquared < bestDistanceSquared);
+                    if (!isBetterMatch)
+                    {
+                        continue;
+                    }
+
+                    matchedStableIndex = stableIndex;
+                    bestIou = iou;
+                    bestDistanceSquared = distanceSquared;
+                }
+
+                if (matchedStableIndex >= 0)
+                {
+                    usedStableIndexes.Add(matchedStableIndex);
+                }
+
+                nextStableDetections[detectionIndex] = matchedStableIndex >= 0
+                    ? SmoothOverlayDetection(stableOverlayDetections[matchedStableIndex], currentDetection)
+                    : currentDetection;
+            }
+
+            stableOverlayDetections = nextStableDetections;
+            stableOverlayDetectionsTick = now;
+            return stableOverlayDetections;
+        }
+
+        private static DetectionResult SmoothOverlayDetection(DetectionResult previousDetection, DetectionResult currentDetection)
+        {
+            PointF previousCenter = GetBoxCenter(previousDetection.Box);
+            PointF currentCenter = GetBoxCenter(currentDetection.Box);
+            PointF smoothedCenter = LerpPoint(previousCenter, currentCenter, OverlayDetectionPositionBlend);
+
+            SizeF previousSize = previousDetection.Box.Size;
+            SizeF currentSize = currentDetection.Box.Size;
+            SizeF blendedSize = LerpSize(previousSize, currentSize, OverlayDetectionSizeBlend);
+            SizeF smoothedSize = new(
+                ClampOverlayGrowth(previousSize.Width, blendedSize.Width),
+                ClampOverlayGrowth(previousSize.Height, blendedSize.Height));
+
+            RectangleF smoothedBox = CreateCenteredBox(smoothedCenter, smoothedSize);
+            return currentDetection with
+            {
+                Box = smoothedBox,
+                Score = Math.Max(previousDetection.Score, currentDetection.Score)
+            };
+        }
+
+        private static float ClampOverlayGrowth(float previousSize, float blendedSize)
+        {
+            if (previousSize <= 1f)
+            {
+                return blendedSize;
+            }
+
+            float minSize = previousSize * (1f - OverlayDetectionMaxGrowthPerFrameRatio);
+            float maxSize = previousSize * (1f + OverlayDetectionMaxGrowthPerFrameRatio);
+            return Math.Clamp(blendedSize, minSize, maxSize);
         }
 
         private void ClearOverlayState()
@@ -678,6 +799,8 @@ namespace YOLOForAim
             {
                 latestOverlayCaptureBounds = Rectangle.Empty;
                 latestOverlayDetections = Array.Empty<DetectionResult>();
+                stableOverlayDetections = Array.Empty<DetectionResult>();
+                stableOverlayDetectionsTick = 0;
             }
         }
 
