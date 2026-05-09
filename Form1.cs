@@ -21,7 +21,6 @@ namespace YOLOForAim
         private const int DefaultAimMoveCooldownMs = 10;
         private const int DefaultAimFeedbackFrameDelay = 2;
         private const int DefaultAimStopInsideBoxAreaPercent = 80;
-        private const int DefaultTargetPersistenceMs = 120;
         private const float AimHeightHighConfidenceThreshold = 0.65f;
         private const float AimHeightHighConfidenceBlend = 0.45f;
         private const float AimHeightLowConfidenceBlend = 0.12f;
@@ -97,7 +96,6 @@ namespace YOLOForAim
         private int suppressOverlayFrameVersion = -1;
         private int suspendAimUntilFrameVersion = -1;
         private long suspendAimUntilTick;
-        private long lastLockedTargetDetectionTick;
 
         public Form1()
         {
@@ -423,9 +421,8 @@ namespace YOLOForAim
                             frameToProcess.Stride,
                             sourceRegion) ?? new DetectionRunResult(Array.Empty<DetectionResult>());
                         detectStopwatch.Stop();
-                        IReadOnlyList<DetectionResult> effectiveDetections = GetEffectiveDetections(result.Detections, frameToProcess.ScreenBounds);
-                        TryMoveMouseToNearestDetection(effectiveDetections, frameToProcess.ScreenBounds, processedVersion);
-                        UpdateOverlayState(frameToProcess.ScreenBounds, BuildOverlayDetections(effectiveDetections, frameToProcess.ScreenBounds, processedVersion));
+                        TryMoveMouseToNearestDetection(result.Detections, frameToProcess.ScreenBounds, processedVersion);
+                        UpdateOverlayState(frameToProcess.ScreenBounds, BuildOverlayDetections(result.Detections, frameToProcess.ScreenBounds, processedVersion));
                         processedFrameCounter++;
                         UpdateInferenceFps(detectStopwatch.Elapsed.TotalMilliseconds);
 
@@ -576,28 +573,6 @@ namespace YOLOForAim
             return detections;
         }
 
-        private IReadOnlyList<DetectionResult> GetEffectiveDetections(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds)
-        {
-            _ = captureBounds;
-            if (detections.Count > 0)
-            {
-                return detections;
-            }
-
-            if (stabilizedLockedDetection is null)
-            {
-                return detections;
-            }
-
-            long now = Environment.TickCount64;
-            if ((now - lastLockedTargetDetectionTick) > DefaultTargetPersistenceMs)
-            {
-                return detections;
-            }
-
-            return new[] { stabilizedLockedDetection };
-        }
-
         private void ClearOverlayState()
         {
             lock (overlayStateLock)
@@ -735,7 +710,6 @@ namespace YOLOForAim
 
             lockedTargetScreenPoint = stabilizedTargetPoint;
             missedTargetFrames = 0;
-            lastLockedTargetDetectionTick = now;
             if (resetHeightTracking)
             {
                 hasAppliedInitialLockPull = false;
@@ -832,7 +806,6 @@ namespace YOLOForAim
             suppressOverlayFrameVersion = -1;
             suspendAimUntilFrameVersion = -1;
             suspendAimUntilTick = 0;
-            lastLockedTargetDetectionTick = 0;
         }
 
         private void ResetAimTrackingState()
