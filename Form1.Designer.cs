@@ -69,6 +69,10 @@
             this.numAimStopInsideBoxArea = new System.Windows.Forms.NumericUpDown();
             this.lblAimStopBoxTopOffset = new System.Windows.Forms.Label();
             this.numAimStopBoxTopOffset = new System.Windows.Forms.NumericUpDown();
+            this.lblAimInitialAcquireDistance = new System.Windows.Forms.Label();
+            this.numAimInitialAcquireDistance = new System.Windows.Forms.NumericUpDown();
+            this.lblAimTrackedAcquireDistance = new System.Windows.Forms.Label();
+            this.numAimTrackedAcquireDistance = new System.Windows.Forms.NumericUpDown();
             this.chkOverlayEnabled = new System.Windows.Forms.CheckBox();
             this.lblParameterHint = new System.Windows.Forms.Label();
             this.lblInferenceBackend = new System.Windows.Forms.Label();
@@ -94,6 +98,8 @@
             ((System.ComponentModel.ISupportInitialize)(this.numAimFeedbackFrameDelay)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimStopInsideBoxArea)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimStopBoxTopOffset)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimInitialAcquireDistance)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimTrackedAcquireDistance)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBoxPreview)).BeginInit();
             this.SuspendLayout();
             // 
@@ -661,12 +667,88 @@
             0});
             this.toolTipDescriptions.SetToolTip(this.numAimStopBoxTopOffset, "建议 10~24。值越小越靠近头部，值越大越靠近身体中部。");
             // 
+            // lblAimInitialAcquireDistance
+            // 
+            this.lblAimInitialAcquireDistance.AutoSize = true;
+            this.lblAimInitialAcquireDistance.Location = new System.Drawing.Point(390, 196);
+            this.lblAimInitialAcquireDistance.Name = "lblAimInitialAcquireDistance";
+            this.lblAimInitialAcquireDistance.Size = new System.Drawing.Size(95, 15);
+            this.lblAimInitialAcquireDistance.TabIndex = 41;
+            this.lblAimInitialAcquireDistance.Text = "首次锁定(px)";
+            this.toolTipDescriptions.SetToolTip(this.lblAimInitialAcquireDistance, "首次按下后的大范围拉枪半径。值越大越容易先吸到目标。");
+            // 
+            // numAimInitialAcquireDistance
+            // 
+            this.numAimInitialAcquireDistance.Increment = new decimal(new int[] {
+            10,
+            0,
+            0,
+            0});
+            this.numAimInitialAcquireDistance.Location = new System.Drawing.Point(491, 194);
+            this.numAimInitialAcquireDistance.Maximum = new decimal(new int[] {
+            500,
+            0,
+            0,
+            0});
+            this.numAimInitialAcquireDistance.Minimum = new decimal(new int[] {
+            20,
+            0,
+            0,
+            0});
+            this.numAimInitialAcquireDistance.Name = "numAimInitialAcquireDistance";
+            this.numAimInitialAcquireDistance.Size = new System.Drawing.Size(56, 23);
+            this.numAimInitialAcquireDistance.TabIndex = 42;
+            this.numAimInitialAcquireDistance.Value = new decimal(new int[] {
+            240,
+            0,
+            0,
+            0});
+            this.toolTipDescriptions.SetToolTip(this.numAimInitialAcquireDistance, "建议 180~280。数值越大，第一次更容易吸附到较远目标。");
+            // 
+            // lblAimTrackedAcquireDistance
+            // 
+            this.lblAimTrackedAcquireDistance.AutoSize = true;
+            this.lblAimTrackedAcquireDistance.Location = new System.Drawing.Point(563, 196);
+            this.lblAimTrackedAcquireDistance.Name = "lblAimTrackedAcquireDistance";
+            this.lblAimTrackedAcquireDistance.Size = new System.Drawing.Size(95, 15);
+            this.lblAimTrackedAcquireDistance.TabIndex = 43;
+            this.lblAimTrackedAcquireDistance.Text = "跟踪范围(px)";
+            this.toolTipDescriptions.SetToolTip(this.lblAimTrackedAcquireDistance, "进入跟踪后只处理光标附近目标的范围。值越小越稳定，值越大越容易切到旁边目标。");
+            // 
+            // numAimTrackedAcquireDistance
+            // 
+            this.numAimTrackedAcquireDistance.Increment = new decimal(new int[] {
+            5,
+            0,
+            0,
+            0});
+            this.numAimTrackedAcquireDistance.Location = new System.Drawing.Point(664, 194);
+            this.numAimTrackedAcquireDistance.Maximum = new decimal(new int[] {
+            300,
+            0,
+            0,
+            0});
+            this.numAimTrackedAcquireDistance.Minimum = new decimal(new int[] {
+            20,
+            0,
+            0,
+            0});
+            this.numAimTrackedAcquireDistance.Name = "numAimTrackedAcquireDistance";
+            this.numAimTrackedAcquireDistance.Size = new System.Drawing.Size(56, 23);
+            this.numAimTrackedAcquireDistance.TabIndex = 44;
+            this.numAimTrackedAcquireDistance.Value = new decimal(new int[] {
+            90,
+            0,
+            0,
+            0});
+            this.toolTipDescriptions.SetToolTip(this.numAimTrackedAcquireDistance, "建议 60~110。值越小越容易稳在当前目标内。");
+            // 
             // chkOverlayEnabled
             // 
             this.chkOverlayEnabled.AutoSize = true;
             this.chkOverlayEnabled.Checked = true;
             this.chkOverlayEnabled.CheckState = System.Windows.Forms.CheckState.Checked;
-            this.chkOverlayEnabled.Location = new System.Drawing.Point(220, 196);
+            this.chkOverlayEnabled.Location = new System.Drawing.Point(12, 224);
             this.chkOverlayEnabled.Name = "chkOverlayEnabled";
             this.chkOverlayEnabled.Size = new System.Drawing.Size(146, 19);
             this.chkOverlayEnabled.TabIndex = 35;
@@ -679,7 +761,7 @@
             // 
             this.lblParameterHint.AutoSize = true;
             this.lblParameterHint.ForeColor = System.Drawing.SystemColors.GrayText;
-            this.lblParameterHint.Location = new System.Drawing.Point(12, 224);
+            this.lblParameterHint.Location = new System.Drawing.Point(12, 252);
             this.lblParameterHint.Name = "lblParameterHint";
             this.lblParameterHint.Size = new System.Drawing.Size(439, 15);
             this.lblParameterHint.TabIndex = 36;
@@ -721,7 +803,7 @@
             // lblStatus
             // 
             this.lblStatus.AutoSize = true;
-            this.lblStatus.Location = new System.Drawing.Point(12, 246);
+            this.lblStatus.Location = new System.Drawing.Point(12, 274);
             this.lblStatus.Name = "lblStatus";
             this.lblStatus.Size = new System.Drawing.Size(43, 15);
             this.lblStatus.TabIndex = 22;
@@ -730,7 +812,7 @@
             // pictureBoxPreview
             // 
             this.pictureBoxPreview.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.pictureBoxPreview.Location = new System.Drawing.Point(12, 273);
+            this.pictureBoxPreview.Location = new System.Drawing.Point(12, 301);
             this.pictureBoxPreview.Name = "pictureBoxPreview";
             this.pictureBoxPreview.Size = new System.Drawing.Size(776, 330);
             this.pictureBoxPreview.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
@@ -739,7 +821,7 @@
             // 
             // txtDiagnostics
             // 
-            this.txtDiagnostics.Location = new System.Drawing.Point(12, 609);
+            this.txtDiagnostics.Location = new System.Drawing.Point(12, 637);
             this.txtDiagnostics.Multiline = true;
             this.txtDiagnostics.Name = "txtDiagnostics";
             this.txtDiagnostics.ReadOnly = true;
@@ -751,11 +833,15 @@
             // Form1
             // 
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(800, 780);
+            ClientSize = new Size(800, 808);
             Controls.Add(this.txtDiagnostics);
             Controls.Add(this.pictureBoxPreview);
             Controls.Add(this.cmbInferenceBackend);
             Controls.Add(this.lblInferenceBackend);
+            Controls.Add(this.numAimTrackedAcquireDistance);
+            Controls.Add(this.lblAimTrackedAcquireDistance);
+            Controls.Add(this.numAimInitialAcquireDistance);
+            Controls.Add(this.lblAimInitialAcquireDistance);
             Controls.Add(this.numAimStopBoxTopOffset);
             Controls.Add(this.lblAimStopBoxTopOffset);
             Controls.Add(this.numAimStopInsideBoxArea);
@@ -818,6 +904,8 @@
             ((System.ComponentModel.ISupportInitialize)(this.numAimFeedbackFrameDelay)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimStopInsideBoxArea)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimStopBoxTopOffset)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimInitialAcquireDistance)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimTrackedAcquireDistance)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBoxPreview)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
@@ -862,6 +950,10 @@
         private System.Windows.Forms.NumericUpDown numAimStopInsideBoxArea;
         private System.Windows.Forms.Label lblAimStopBoxTopOffset;
         private System.Windows.Forms.NumericUpDown numAimStopBoxTopOffset;
+        private System.Windows.Forms.Label lblAimInitialAcquireDistance;
+        private System.Windows.Forms.NumericUpDown numAimInitialAcquireDistance;
+        private System.Windows.Forms.Label lblAimTrackedAcquireDistance;
+        private System.Windows.Forms.NumericUpDown numAimTrackedAcquireDistance;
         private System.Windows.Forms.CheckBox chkOverlayEnabled;
         private System.Windows.Forms.Label lblParameterHint;
         private System.Windows.Forms.Label lblInferenceBackend;

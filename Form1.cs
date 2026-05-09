@@ -20,6 +20,8 @@ namespace YOLOForAim
         private const int DefaultAimCloseRangeSlowdownPixels = 64;
         private const int DefaultAimMoveCooldownMs = 10;
         private const int DefaultAimFeedbackFrameDelay = 2;
+        private const int DefaultAimInitialAcquireDistancePixels = 240;
+        private const int DefaultAimTrackedAcquireDistancePixels = 90;
         private const int DefaultAimStopLockSquareSizePixels = 36;
         private const int DefaultAimStopLockTopOffsetPixels = 18;
         private const float AimHeightHighConfidenceThreshold = 0.65f;
@@ -39,10 +41,6 @@ namespace YOLOForAim
         private const float AimLargePullDistancePixels = 72f;
         private const int AimReacquireAfterLargePullFrames = 2;
         private const int AimReacquireAfterLargePullMs = 90;
-        private const float AimInitialAcquireDistanceMultiplier = 1.75f;
-        private const float AimInitialAcquireMinimumPixels = 180f;
-        private const float AimTrackedAcquireDistanceMultiplier = 0.45f;
-        private const float AimTrackedAcquireMinimumPixels = 64f;
         private const float OverlayTrackMaxSpeedPixelsPerSecond = 900f;
         private const float OverlayTrackMinMatchDistancePixels = 18f;
         private const float OverlayTrackMinIou = 0.18f;
@@ -71,6 +69,9 @@ namespace YOLOForAim
         private int latestCapturedFrameVersion;
         private Rectangle latestOverlayCaptureBounds;
         private DetectionResult[] latestOverlayDetections = Array.Empty<DetectionResult>();
+        private DetectionResult? latestOverlayLockedDetection;
+        private PointF? latestOverlayAimPoint;
+        private Point latestOverlayCursorPoint;
         private OverlayTrack[] overlayTracks = Array.Empty<OverlayTrack>();
         private long overlayTracksTick;
         private readonly System.Windows.Forms.Timer overlayRefreshTimer;
@@ -90,6 +91,8 @@ namespace YOLOForAim
         private float currentAimCloseRangeSlowdownPixels;
         private int currentAimMoveCooldownMs;
         private int currentAimFeedbackFrameDelay;
+        private float currentAimInitialAcquireDistancePixels;
+        private float currentAimTrackedAcquireDistancePixels;
         private float currentAimStopLockSquareSizePixels;
         private float currentAimStopLockTopOffsetPixels;
         private PointF? lockedTargetScreenPoint;
@@ -135,12 +138,19 @@ namespace YOLOForAim
             numAimCloseRangeSlowdown.Value = DefaultAimCloseRangeSlowdownPixels;
             numAimMoveCooldown.Value = DefaultAimMoveCooldownMs;
             numAimFeedbackFrameDelay.Value = DefaultAimFeedbackFrameDelay;
+            numAimInitialAcquireDistance.Value = DefaultAimInitialAcquireDistancePixels;
+            numAimTrackedAcquireDistance.Value = DefaultAimTrackedAcquireDistancePixels;
             numAimStopInsideBoxArea.Value = DefaultAimStopLockSquareSizePixels;
             numAimStopBoxTopOffset.Value = DefaultAimStopLockTopOffsetPixels;
             numScoreThreshold.Value = 35;
             cmbInferenceBackend.SelectedIndex = 0;
+            numAimInitialAcquireDistance.ValueChanged += AimRuntimeSetting_ValueChanged;
+            numAimTrackedAcquireDistance.ValueChanged += AimRuntimeSetting_ValueChanged;
+            numAimStopInsideBoxArea.ValueChanged += AimRuntimeSetting_ValueChanged;
+            numAimStopBoxTopOffset.ValueChanged += AimRuntimeSetting_ValueChanged;
             UpdateInferenceBackendUi();
             LoadUiSettings();
+            UpdateLiveAimRuntimeSettings();
         }
 
         private void btnSelectWindow_Click(object? sender, EventArgs e)
@@ -236,6 +246,8 @@ namespace YOLOForAim
             currentAimCloseRangeSlowdownPixels = (float)numAimCloseRangeSlowdown.Value;
             currentAimMoveCooldownMs = (int)numAimMoveCooldown.Value;
             currentAimFeedbackFrameDelay = Math.Max(0, (int)numAimFeedbackFrameDelay.Value);
+            currentAimInitialAcquireDistancePixels = (float)numAimInitialAcquireDistance.Value;
+            currentAimTrackedAcquireDistancePixels = (float)numAimTrackedAcquireDistance.Value;
             currentAimStopLockSquareSizePixels = (float)numAimStopInsideBoxArea.Value;
             currentAimStopLockTopOffsetPixels = (float)numAimStopBoxTopOffset.Value;
             diagnosticsHeader = detector?.ModelSummary ?? string.Empty;
@@ -512,6 +524,19 @@ namespace YOLOForAim
             UpdateDiagnosticsText();
         }
 
+        private void AimRuntimeSetting_ValueChanged(object? sender, EventArgs e)
+        {
+            UpdateLiveAimRuntimeSettings();
+        }
+
+        private void UpdateLiveAimRuntimeSettings()
+        {
+            currentAimInitialAcquireDistancePixels = (float)numAimInitialAcquireDistance.Value;
+            currentAimTrackedAcquireDistancePixels = (float)numAimTrackedAcquireDistance.Value;
+            currentAimStopLockSquareSizePixels = (float)numAimStopInsideBoxArea.Value;
+            currentAimStopLockTopOffsetPixels = (float)numAimStopBoxTopOffset.Value;
+        }
+
         private void UpdateDiagnosticsText()
         {
             string fpsLine = $"YOLO FPS: {currentInferenceFps:F1}";
@@ -635,6 +660,11 @@ namespace YOLOForAim
             {
                 latestOverlayCaptureBounds = captureBounds;
                 latestOverlayDetections = detections.Count == 0 ? Array.Empty<DetectionResult>() : detections.ToArray();
+                latestOverlayLockedDetection = stabilizedLockedDetection;
+                latestOverlayAimPoint = stabilizedLockedDetection is null
+                    ? null
+                    : GetAimPoint(captureBounds, stabilizedLockedDetection, Math.Max(1f, stabilizedAimTargetHeight > 0f ? stabilizedAimTargetHeight : stabilizedLockedDetection.Box.Height));
+                latestOverlayCursorPoint = Cursor.Position;
             }
 
             if (!IsDisposed && chkOverlayEnabled.Checked)
@@ -778,6 +808,9 @@ namespace YOLOForAim
             {
                 latestOverlayCaptureBounds = Rectangle.Empty;
                 latestOverlayDetections = Array.Empty<DetectionResult>();
+                latestOverlayLockedDetection = null;
+                latestOverlayAimPoint = null;
+                latestOverlayCursorPoint = Point.Empty;
                 overlayTracks = Array.Empty<OverlayTrack>();
                 overlayTracksTick = 0;
             }
@@ -805,13 +838,19 @@ namespace YOLOForAim
 
             Rectangle captureBounds;
             DetectionResult[] detections;
+            DetectionResult? lockedDetection;
+            PointF? aimPoint;
+            Point cursorPoint;
             lock (overlayStateLock)
             {
                 captureBounds = latestOverlayCaptureBounds;
                 detections = latestOverlayDetections;
+                lockedDetection = latestOverlayLockedDetection;
+                aimPoint = latestOverlayAimPoint;
+                cursorPoint = latestOverlayCursorPoint;
             }
 
-            detectionOverlay?.UpdateDetections(selectedHwnd, captureBounds, detections);
+            detectionOverlay?.UpdateDetections(selectedHwnd, captureBounds, detections, lockedDetection, aimPoint, cursorPoint, currentAimStopLockSquareSizePixels, currentAimStopLockTopOffsetPixels);
         }
 
         private static CapturedFrame? CaptureWindow(IntPtr hwnd, bool centerRoiOnly, int roiSize)
@@ -1212,8 +1251,8 @@ namespace YOLOForAim
         private float GetCurrentAimAcquireDistancePixels()
         {
             return !hasAppliedInitialLockPull
-                ? Math.Max(AimInitialAcquireMinimumPixels, currentAimLockSwitchDistancePixels * AimInitialAcquireDistanceMultiplier)
-                : Math.Max(AimTrackedAcquireMinimumPixels, currentAimLockSwitchDistancePixels * AimTrackedAcquireDistanceMultiplier);
+                ? Math.Max(1f, currentAimInitialAcquireDistancePixels)
+                : Math.Max(1f, currentAimTrackedAcquireDistancePixels);
         }
 
         private static bool IsTargetCandidateNearCursor(TargetCandidate candidate, PointF cursorPoint, float maxDistancePixels)
@@ -1414,6 +1453,8 @@ namespace YOLOForAim
                 SetNumericValue(numAimCloseRangeSlowdown, settings.AimCloseRangeSlowdownPixels);
                 SetNumericValue(numAimMoveCooldown, settings.AimMoveCooldownMs);
                 SetNumericValue(numAimFeedbackFrameDelay, settings.AimFeedbackFrameDelay);
+                SetNumericValue(numAimInitialAcquireDistance, settings.AimInitialAcquireDistancePixels);
+                SetNumericValue(numAimTrackedAcquireDistance, settings.AimTrackedAcquireDistancePixels);
                 SetNumericValue(numAimStopInsideBoxArea, settings.AimStopLockSquareSizePixels);
                 SetNumericValue(numAimStopBoxTopOffset, settings.AimStopLockTopOffsetPixels);
             }
@@ -1445,6 +1486,8 @@ namespace YOLOForAim
                     (int)numAimCloseRangeSlowdown.Value,
                     (int)numAimMoveCooldown.Value,
                     (int)numAimFeedbackFrameDelay.Value,
+                    (int)numAimInitialAcquireDistance.Value,
+                    (int)numAimTrackedAcquireDistance.Value,
                     (int)numAimStopInsideBoxArea.Value,
                     (int)numAimStopBoxTopOffset.Value,
                     GetSelectedBackend().ToString());
@@ -1566,6 +1609,8 @@ namespace YOLOForAim
             int AimCloseRangeSlowdownPixels = DefaultAimCloseRangeSlowdownPixels,
             int AimMoveCooldownMs = DefaultAimMoveCooldownMs,
             int AimFeedbackFrameDelay = DefaultAimFeedbackFrameDelay,
+            int AimInitialAcquireDistancePixels = DefaultAimInitialAcquireDistancePixels,
+            int AimTrackedAcquireDistancePixels = DefaultAimTrackedAcquireDistancePixels,
             int AimStopLockSquareSizePixels = DefaultAimStopLockSquareSizePixels,
             int AimStopLockTopOffsetPixels = DefaultAimStopLockTopOffsetPixels,
             string InferenceBackend = nameof(DetectorBackend.OnnxRuntimeDirectMl));
@@ -1836,6 +1881,11 @@ namespace YOLOForAim
         private IntPtr targetHandle = IntPtr.Zero;
         private Rectangle captureBounds = Rectangle.Empty;
         private IReadOnlyList<DetectionResult> detections = Array.Empty<DetectionResult>();
+        private DetectionResult? lockedDetection;
+        private PointF? aimPoint;
+        private Point cursorPoint = Point.Empty;
+        private float stopSquareSizePixels;
+        private float stopSquareTopOffsetPixels;
 
         public DetectionOverlayForm()
         {
@@ -1878,7 +1928,7 @@ namespace YOLOForAim
             base.WndProc(ref m);
         }
 
-        public void UpdateDetections(IntPtr hwnd, Rectangle newCaptureBounds, IReadOnlyList<DetectionResult> newDetections)
+        public void UpdateDetections(IntPtr hwnd, Rectangle newCaptureBounds, IReadOnlyList<DetectionResult> newDetections, DetectionResult? newLockedDetection, PointF? newAimPoint, Point newCursorPoint, float newStopSquareSizePixels, float newStopSquareTopOffsetPixels)
         {
             if (hwnd == IntPtr.Zero ||
                 !GetWindowRect(hwnd, out var rect) ||
@@ -1892,6 +1942,11 @@ namespace YOLOForAim
             targetHandle = hwnd;
             captureBounds = newCaptureBounds;
             detections = newDetections;
+            lockedDetection = newLockedDetection;
+            aimPoint = newAimPoint;
+            cursorPoint = newCursorPoint;
+            stopSquareSizePixels = newStopSquareSizePixels;
+            stopSquareTopOffsetPixels = newStopSquareTopOffsetPixels;
 
             Rectangle overlayBounds = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
             if (Bounds != overlayBounds)
@@ -1914,6 +1969,9 @@ namespace YOLOForAim
             targetHandle = IntPtr.Zero;
             captureBounds = Rectangle.Empty;
             detections = Array.Empty<DetectionResult>();
+            lockedDetection = null;
+            aimPoint = null;
+            cursorPoint = Point.Empty;
 
             if (Visible)
             {
@@ -1935,6 +1993,9 @@ namespace YOLOForAim
             using var pen = new Pen(Color.Lime, 2f);
             using var labelBackground = new SolidBrush(Color.FromArgb(160, 0, 0, 0));
             using var textBrush = new SolidBrush(Color.Yellow);
+            using var stopAreaPen = new Pen(Color.Orange, 2f) { DashStyle = DashStyle.Dash };
+            using var aimPointBrush = new SolidBrush(Color.Cyan);
+            using var cursorPen = new Pen(Color.DeepSkyBlue, 1.5f);
 
             float offsetX = captureBounds.Left - rect.Left;
             float offsetY = captureBounds.Top - rect.Top;
@@ -1951,6 +2012,42 @@ namespace YOLOForAim
                 e.Graphics.FillRectangle(labelBackground, boxX, labelY, textSize.Width + 6, textSize.Height + 2);
                 e.Graphics.DrawString(text, Font, textBrush, boxX + 3, labelY + 1);
             }
+
+            if (lockedDetection is not null)
+            {
+                RectangleF lockSquare = GetLockSquareBounds(GetDetectionOverlayBounds(lockedDetection, offsetX, offsetY), stopSquareSizePixels, stopSquareTopOffsetPixels);
+                e.Graphics.DrawRectangle(stopAreaPen, lockSquare.X, lockSquare.Y, lockSquare.Width, lockSquare.Height);
+            }
+
+            if (aimPoint is not null)
+            {
+                float aimX = aimPoint.Value.X - rect.Left;
+                float aimY = aimPoint.Value.Y - rect.Top;
+                const float radius = 4f;
+                e.Graphics.FillEllipse(aimPointBrush, aimX - radius, aimY - radius, radius * 2f, radius * 2f);
+            }
+
+            if (!cursorPoint.IsEmpty)
+            {
+                float cursorX = cursorPoint.X - rect.Left;
+                float cursorY = cursorPoint.Y - rect.Top;
+                const float cursorHalfSize = 6f;
+                e.Graphics.DrawLine(cursorPen, cursorX - cursorHalfSize, cursorY, cursorX + cursorHalfSize, cursorY);
+                e.Graphics.DrawLine(cursorPen, cursorX, cursorY - cursorHalfSize, cursorX, cursorY + cursorHalfSize);
+            }
+        }
+
+        private static RectangleF GetDetectionOverlayBounds(DetectionResult detection, float offsetX, float offsetY)
+        {
+            return new RectangleF(offsetX + detection.Box.X, offsetY + detection.Box.Y, detection.Box.Width, detection.Box.Height);
+        }
+
+        private static RectangleF GetLockSquareBounds(RectangleF bounds, float squareSizePixels, float topOffsetPixels)
+        {
+            float squareSize = Math.Clamp(squareSizePixels, 8f, Math.Max(8f, Math.Min(bounds.Width, bounds.Height)));
+            float left = bounds.Left + ((bounds.Width - squareSize) / 2f);
+            float top = bounds.Top + Math.Clamp(topOffsetPixels, 0f, Math.Max(0f, bounds.Height - squareSize));
+            return new RectangleF(left, top, squareSize, squareSize);
         }
 
         [DllImport("user32.dll")]
