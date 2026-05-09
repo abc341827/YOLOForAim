@@ -20,7 +20,8 @@ namespace YOLOForAim
         private const int DefaultAimCloseRangeSlowdownPixels = 64;
         private const int DefaultAimMoveCooldownMs = 10;
         private const int DefaultAimFeedbackFrameDelay = 2;
-        private const int DefaultAimStopInsideBoxAreaPercent = 80;
+        private const int DefaultAimStopLockSquareSizePixels = 36;
+        private const int DefaultAimStopLockTopOffsetPixels = 18;
         private const float AimHeightHighConfidenceThreshold = 0.65f;
         private const float AimHeightHighConfidenceBlend = 0.45f;
         private const float AimHeightLowConfidenceBlend = 0.12f;
@@ -35,10 +36,13 @@ namespace YOLOForAim
         private const int AimTargetSwitchHoldMs = 120;
         private const float AimSameTargetOverlapThreshold = 0.12f;
         private const float StableTargetIouThreshold = 0.35f;
-        private const float AimStopInsideBoxAreaRatio = 0.8f;
         private const float AimLargePullDistancePixels = 72f;
         private const int AimReacquireAfterLargePullFrames = 2;
         private const int AimReacquireAfterLargePullMs = 90;
+        private const float AimInitialAcquireDistanceMultiplier = 1.75f;
+        private const float AimInitialAcquireMinimumPixels = 180f;
+        private const float AimTrackedAcquireDistanceMultiplier = 0.45f;
+        private const float AimTrackedAcquireMinimumPixels = 64f;
         private const float OverlayTrackMaxSpeedPixelsPerSecond = 900f;
         private const float OverlayTrackMinMatchDistancePixels = 18f;
         private const float OverlayTrackMinIou = 0.18f;
@@ -86,7 +90,8 @@ namespace YOLOForAim
         private float currentAimCloseRangeSlowdownPixels;
         private int currentAimMoveCooldownMs;
         private int currentAimFeedbackFrameDelay;
-        private float currentAimStopInsideBoxAreaRatio;
+        private float currentAimStopLockSquareSizePixels;
+        private float currentAimStopLockTopOffsetPixels;
         private PointF? lockedTargetScreenPoint;
         private PointF? smoothedTargetScreenPoint;
         private int missedTargetFrames;
@@ -130,7 +135,8 @@ namespace YOLOForAim
             numAimCloseRangeSlowdown.Value = DefaultAimCloseRangeSlowdownPixels;
             numAimMoveCooldown.Value = DefaultAimMoveCooldownMs;
             numAimFeedbackFrameDelay.Value = DefaultAimFeedbackFrameDelay;
-            numAimStopInsideBoxArea.Value = DefaultAimStopInsideBoxAreaPercent;
+            numAimStopInsideBoxArea.Value = DefaultAimStopLockSquareSizePixels;
+            numAimStopBoxTopOffset.Value = DefaultAimStopLockTopOffsetPixels;
             numScoreThreshold.Value = 35;
             cmbInferenceBackend.SelectedIndex = 0;
             UpdateInferenceBackendUi();
@@ -230,7 +236,8 @@ namespace YOLOForAim
             currentAimCloseRangeSlowdownPixels = (float)numAimCloseRangeSlowdown.Value;
             currentAimMoveCooldownMs = (int)numAimMoveCooldown.Value;
             currentAimFeedbackFrameDelay = Math.Max(0, (int)numAimFeedbackFrameDelay.Value);
-            currentAimStopInsideBoxAreaRatio = (float)numAimStopInsideBoxArea.Value / 100f;
+            currentAimStopLockSquareSizePixels = (float)numAimStopInsideBoxArea.Value;
+            currentAimStopLockTopOffsetPixels = (float)numAimStopBoxTopOffset.Value;
             diagnosticsHeader = detector?.ModelSummary ?? string.Empty;
             UpdateDiagnosticsText();
             ClearOverlayState();
@@ -922,7 +929,7 @@ namespace YOLOForAim
             float rawMoveX = targetPointForMove.X - aimReferencePoint.X;
             float rawMoveY = targetPointForMove.Y - aimReferencePoint.Y;
             float distanceToAimPoint = MathF.Sqrt((rawMoveX * rawMoveX) + (rawMoveY * rawMoveY));
-            if (IsAimReferenceInsideStableBox(captureBounds, stabilizedDetection, aimReferencePoint, currentAimStopInsideBoxAreaRatio))
+            if (IsAimReferenceInsideStableBox(captureBounds, stabilizedDetection, aimReferencePoint, currentAimStopLockSquareSizePixels, currentAimStopLockTopOffsetPixels))
             {
                 return;
             }
@@ -1117,30 +1124,42 @@ namespace YOLOForAim
 
         private bool CanSendAimMove(long now, int processedFrameVersion)
         {
-            if (lastAimMoveTick > 0 && (now - lastAimMoveTick) < currentAimMoveCooldownMs)
+            bool isTrackingPhase = hasAppliedInitialLockPull && lockedTargetScreenPoint is not null;
+            int effectiveMoveCooldownMs = isTrackingPhase
+                ? Math.Max(1, currentAimMoveCooldownMs / 2)
+                : currentAimMoveCooldownMs;
+            int effectiveFeedbackFrameDelay = isTrackingPhase
+                ? Math.Max(0, currentAimFeedbackFrameDelay - 1)
+                : currentAimFeedbackFrameDelay;
+
+            if (lastAimMoveTick > 0 && (now - lastAimMoveTick) < effectiveMoveCooldownMs)
             {
                 return false;
             }
 
             return lastAimMoveFrameVersion < 0 ||
-                (processedFrameVersion - lastAimMoveFrameVersion) >= currentAimFeedbackFrameDelay;
+                (processedFrameVersion - lastAimMoveFrameVersion) >= effectiveFeedbackFrameDelay;
         }
 
         private TargetCandidate? SelectTargetCandidate(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, PointF referencePoint)
         {
             PointF? lockedAnchor = smoothedTargetScreenPoint ?? lockedTargetScreenPoint;
+            float maxCandidateDistancePixels = GetCurrentAimAcquireDistancePixels();
             if (lockedAnchor is not null)
             {
                 TargetCandidate? containingCandidate = FindContainingTargetCandidate(detections, captureBounds, lockedAnchor.Value);
                 if (containingCandidate is not null)
                 {
-                    return containingCandidate;
+                    return IsTargetCandidateNearCursor(containingCandidate, referencePoint, maxCandidateDistancePixels) ? containingCandidate : null;
                 }
 
-                return FindNearestTargetCandidate(detections, captureBounds, lockedAnchor.Value);
+                TargetCandidate? nearestCandidate = FindNearestTargetCandidate(detections, captureBounds, lockedAnchor.Value, maxCandidateDistancePixels);
+                return nearestCandidate is not null && IsTargetCandidateNearCursor(nearestCandidate, referencePoint, maxCandidateDistancePixels)
+                    ? nearestCandidate
+                    : null;
             }
 
-            return FindNearestTargetCandidate(detections, captureBounds, referencePoint);
+            return FindNearestTargetCandidate(detections, captureBounds, referencePoint, maxCandidateDistancePixels);
         }
 
         private TargetCandidate? FindContainingTargetCandidate(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, PointF referencePoint)
@@ -1167,14 +1186,20 @@ namespace YOLOForAim
             return bestCandidate;
         }
 
-        private TargetCandidate? FindNearestTargetCandidate(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, PointF referencePoint)
+        private TargetCandidate? FindNearestTargetCandidate(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, PointF referencePoint, float maxDistancePixels)
         {
             TargetCandidate? bestCandidate = null;
+            double maxDistanceSquared = maxDistancePixels * maxDistancePixels;
 
             foreach (DetectionResult detection in detections)
             {
                 PointF targetPoint = GetAimPoint(captureBounds, detection);
                 double distanceSquared = GetDistanceSquared(referencePoint, targetPoint);
+                if (distanceSquared > maxDistanceSquared)
+                {
+                    continue;
+                }
+
                 if (bestCandidate is null || distanceSquared < bestCandidate.DistanceSquared)
                 {
                     bestCandidate = new TargetCandidate(detection, targetPoint, distanceSquared);
@@ -1182,6 +1207,19 @@ namespace YOLOForAim
             }
 
             return bestCandidate;
+        }
+
+        private float GetCurrentAimAcquireDistancePixels()
+        {
+            return !hasAppliedInitialLockPull
+                ? Math.Max(AimInitialAcquireMinimumPixels, currentAimLockSwitchDistancePixels * AimInitialAcquireDistanceMultiplier)
+                : Math.Max(AimTrackedAcquireMinimumPixels, currentAimLockSwitchDistancePixels * AimTrackedAcquireDistanceMultiplier);
+        }
+
+        private static bool IsTargetCandidateNearCursor(TargetCandidate candidate, PointF cursorPoint, float maxDistancePixels)
+        {
+            return candidate.DistanceSquared <= (maxDistancePixels * maxDistancePixels) ||
+                GetDistanceSquared(candidate.TargetPoint, cursorPoint) <= (maxDistancePixels * maxDistancePixels);
         }
 
         private static RectangleF GetExpandedDetectionBounds(Rectangle captureBounds, DetectionResult detection, float padding)
@@ -1202,19 +1240,19 @@ namespace YOLOForAim
                 detection.Box.Height);
         }
 
-        private static bool IsAimReferenceInsideStableBox(Rectangle captureBounds, DetectionResult detection, PointF aimReferencePoint, float areaRatio)
+        private static bool IsAimReferenceInsideStableBox(Rectangle captureBounds, DetectionResult detection, PointF aimReferencePoint, float squareSizePixels, float topOffsetPixels)
         {
             RectangleF screenBounds = GetDetectionScreenBounds(captureBounds, detection);
-            RectangleF innerBounds = GetInnerAreaBounds(screenBounds, areaRatio);
-            return innerBounds.Contains(aimReferencePoint);
+            RectangleF lockSquareBounds = GetLockSquareBounds(screenBounds, squareSizePixels, topOffsetPixels);
+            return lockSquareBounds.Contains(aimReferencePoint);
         }
 
-        private static RectangleF GetInnerAreaBounds(RectangleF bounds, float areaRatio)
+        private static RectangleF GetLockSquareBounds(RectangleF bounds, float squareSizePixels, float topOffsetPixels)
         {
-            float scale = MathF.Sqrt(Math.Clamp(areaRatio, 0.05f, 1f));
-            float innerWidth = bounds.Width * scale;
-            float innerHeight = bounds.Height * scale;
-            return CreateCenteredBox(GetBoxCenter(bounds), new SizeF(innerWidth, innerHeight));
+            float squareSize = Math.Clamp(squareSizePixels, 8f, Math.Max(8f, Math.Min(bounds.Width, bounds.Height)));
+            float left = bounds.Left + ((bounds.Width - squareSize) / 2f);
+            float top = bounds.Top + Math.Clamp(topOffsetPixels, 0f, Math.Max(0f, bounds.Height - squareSize));
+            return new RectangleF(left, top, squareSize, squareSize);
         }
 
         private PointF GetAimPoint(Rectangle captureBounds, DetectionResult detection)
@@ -1376,7 +1414,8 @@ namespace YOLOForAim
                 SetNumericValue(numAimCloseRangeSlowdown, settings.AimCloseRangeSlowdownPixels);
                 SetNumericValue(numAimMoveCooldown, settings.AimMoveCooldownMs);
                 SetNumericValue(numAimFeedbackFrameDelay, settings.AimFeedbackFrameDelay);
-                SetNumericValue(numAimStopInsideBoxArea, settings.AimStopInsideBoxAreaPercent);
+                SetNumericValue(numAimStopInsideBoxArea, settings.AimStopLockSquareSizePixels);
+                SetNumericValue(numAimStopBoxTopOffset, settings.AimStopLockTopOffsetPixels);
             }
             catch
             {
@@ -1407,6 +1446,7 @@ namespace YOLOForAim
                     (int)numAimMoveCooldown.Value,
                     (int)numAimFeedbackFrameDelay.Value,
                     (int)numAimStopInsideBoxArea.Value,
+                    (int)numAimStopBoxTopOffset.Value,
                     GetSelectedBackend().ToString());
 
                 string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
@@ -1526,7 +1566,8 @@ namespace YOLOForAim
             int AimCloseRangeSlowdownPixels = DefaultAimCloseRangeSlowdownPixels,
             int AimMoveCooldownMs = DefaultAimMoveCooldownMs,
             int AimFeedbackFrameDelay = DefaultAimFeedbackFrameDelay,
-            int AimStopInsideBoxAreaPercent = DefaultAimStopInsideBoxAreaPercent,
+            int AimStopLockSquareSizePixels = DefaultAimStopLockSquareSizePixels,
+            int AimStopLockTopOffsetPixels = DefaultAimStopLockTopOffsetPixels,
             string InferenceBackend = nameof(DetectorBackend.OnnxRuntimeDirectMl));
 
         private sealed record TargetCandidate(DetectionResult Detection, PointF TargetPoint, double DistanceSquared);

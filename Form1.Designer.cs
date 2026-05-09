@@ -67,6 +67,8 @@
             this.numAimFeedbackFrameDelay = new System.Windows.Forms.NumericUpDown();
             this.lblAimStopInsideBoxArea = new System.Windows.Forms.Label();
             this.numAimStopInsideBoxArea = new System.Windows.Forms.NumericUpDown();
+            this.lblAimStopBoxTopOffset = new System.Windows.Forms.Label();
+            this.numAimStopBoxTopOffset = new System.Windows.Forms.NumericUpDown();
             this.chkOverlayEnabled = new System.Windows.Forms.CheckBox();
             this.lblParameterHint = new System.Windows.Forms.Label();
             this.lblInferenceBackend = new System.Windows.Forms.Label();
@@ -91,6 +93,7 @@
             ((System.ComponentModel.ISupportInitialize)(this.numAimMoveCooldown)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimFeedbackFrameDelay)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimStopInsideBoxArea)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimStopBoxTopOffset)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBoxPreview)).BeginInit();
             this.SuspendLayout();
             // 
@@ -602,21 +605,21 @@
             this.lblAimStopInsideBoxArea.AutoSize = true;
             this.lblAimStopInsideBoxArea.Location = new System.Drawing.Point(585, 168);
             this.lblAimStopInsideBoxArea.Name = "lblAimStopInsideBoxArea";
-            this.lblAimStopInsideBoxArea.Size = new System.Drawing.Size(115, 15);
+            this.lblAimStopInsideBoxArea.Size = new System.Drawing.Size(95, 15);
             this.lblAimStopInsideBoxArea.TabIndex = 33;
-            this.lblAimStopInsideBoxArea.Text = "框内停止范围(%)";
-            this.toolTipDescriptions.SetToolTip(this.lblAimStopInsideBoxArea, "当准心进入检测框内部多大比例的区域后停止继续拉动。值越大越贴目标，值越小越稳。");
+            this.lblAimStopInsideBoxArea.Text = "停止框边长(px)";
+            this.toolTipDescriptions.SetToolTip(this.lblAimStopInsideBoxArea, "用于停止拉动的固定正方形边长，正方形位于检测框水平中间。值越大越容易停住。");
             // 
             // numAimStopInsideBoxArea
             // 
             this.numAimStopInsideBoxArea.Location = new System.Drawing.Point(706, 166);
             this.numAimStopInsideBoxArea.Maximum = new decimal(new int[] {
-            100,
+            300,
             0,
             0,
             0});
             this.numAimStopInsideBoxArea.Minimum = new decimal(new int[] {
-            10,
+            8,
             0,
             0,
             0});
@@ -624,18 +627,46 @@
             this.numAimStopInsideBoxArea.Size = new System.Drawing.Size(56, 23);
             this.numAimStopInsideBoxArea.TabIndex = 34;
             this.numAimStopInsideBoxArea.Value = new decimal(new int[] {
-            80,
+            36,
             0,
             0,
             0});
-            this.toolTipDescriptions.SetToolTip(this.numAimStopInsideBoxArea, "建议 70~90。80 表示准心进入检测框约 80% 的内部区域后停止拉动。");
+            this.toolTipDescriptions.SetToolTip(this.numAimStopInsideBoxArea, "建议 24~56。该值表示检测框内部固定停止正方形的边长。");
+            // 
+            // lblAimStopBoxTopOffset
+            // 
+            this.lblAimStopBoxTopOffset.AutoSize = true;
+            this.lblAimStopBoxTopOffset.Location = new System.Drawing.Point(12, 196);
+            this.lblAimStopBoxTopOffset.Name = "lblAimStopBoxTopOffset";
+            this.lblAimStopBoxTopOffset.Size = new System.Drawing.Size(119, 15);
+            this.lblAimStopBoxTopOffset.TabIndex = 39;
+            this.lblAimStopBoxTopOffset.Text = "停止框顶部偏移(px)";
+            this.toolTipDescriptions.SetToolTip(this.lblAimStopBoxTopOffset, "固定停止正方形距离检测框顶部的偏移像素，正方形始终水平居中。");
+            // 
+            // numAimStopBoxTopOffset
+            // 
+            this.numAimStopBoxTopOffset.Location = new System.Drawing.Point(137, 194);
+            this.numAimStopBoxTopOffset.Maximum = new decimal(new int[] {
+            300,
+            0,
+            0,
+            0});
+            this.numAimStopBoxTopOffset.Name = "numAimStopBoxTopOffset";
+            this.numAimStopBoxTopOffset.Size = new System.Drawing.Size(56, 23);
+            this.numAimStopBoxTopOffset.TabIndex = 40;
+            this.numAimStopBoxTopOffset.Value = new decimal(new int[] {
+            18,
+            0,
+            0,
+            0});
+            this.toolTipDescriptions.SetToolTip(this.numAimStopBoxTopOffset, "建议 10~24。值越小越靠近头部，值越大越靠近身体中部。");
             // 
             // chkOverlayEnabled
             // 
             this.chkOverlayEnabled.AutoSize = true;
             this.chkOverlayEnabled.Checked = true;
             this.chkOverlayEnabled.CheckState = System.Windows.Forms.CheckState.Checked;
-            this.chkOverlayEnabled.Location = new System.Drawing.Point(12, 196);
+            this.chkOverlayEnabled.Location = new System.Drawing.Point(220, 196);
             this.chkOverlayEnabled.Name = "chkOverlayEnabled";
             this.chkOverlayEnabled.Size = new System.Drawing.Size(146, 19);
             this.chkOverlayEnabled.TabIndex = 35;
@@ -725,6 +756,8 @@
             Controls.Add(this.pictureBoxPreview);
             Controls.Add(this.cmbInferenceBackend);
             Controls.Add(this.lblInferenceBackend);
+            Controls.Add(this.numAimStopBoxTopOffset);
+            Controls.Add(this.lblAimStopBoxTopOffset);
             Controls.Add(this.numAimStopInsideBoxArea);
             Controls.Add(this.lblAimStopInsideBoxArea);
             Controls.Add(this.chkOverlayEnabled);
@@ -784,6 +817,7 @@
             ((System.ComponentModel.ISupportInitialize)(this.numAimMoveCooldown)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimFeedbackFrameDelay)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimStopInsideBoxArea)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimStopBoxTopOffset)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBoxPreview)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
@@ -826,6 +860,8 @@
         private System.Windows.Forms.NumericUpDown numAimFeedbackFrameDelay;
         private System.Windows.Forms.Label lblAimStopInsideBoxArea;
         private System.Windows.Forms.NumericUpDown numAimStopInsideBoxArea;
+        private System.Windows.Forms.Label lblAimStopBoxTopOffset;
+        private System.Windows.Forms.NumericUpDown numAimStopBoxTopOffset;
         private System.Windows.Forms.CheckBox chkOverlayEnabled;
         private System.Windows.Forms.Label lblParameterHint;
         private System.Windows.Forms.Label lblInferenceBackend;
