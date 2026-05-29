@@ -765,8 +765,8 @@
             this.btnPickScreenColor.Name = "btnPickScreenColor";
             this.btnPickScreenColor.Size = new System.Drawing.Size(100, 23);
             this.btnPickScreenColor.TabIndex = 45;
-            this.btnPickScreenColor.Text = "取鼠标色值";
-            this.toolTipDescriptions.SetToolTip(this.btnPickScreenColor, "点击后读取当前鼠标所在屏幕像素，并显示 HEX / RGB / HSV。先把鼠标移动到目标颜色上，再点击按钮。若点击后鼠标位置变了，可使用键盘或快捷键辅助定位。");
+            this.btnPickScreenColor.Text = "延迟取鼠标色";
+            this.toolTipDescriptions.SetToolTip(this.btnPickScreenColor, "点击后会等待 1.5 秒再读取当前鼠标所在屏幕像素。点击按钮后立刻把鼠标移动到目标颜色上，避免取到按钮本身颜色。");
             this.btnPickScreenColor.UseVisualStyleBackColor = true;
             this.btnPickScreenColor.Click += new System.EventHandler(this.btnPickScreenColor_Click);
             // 

@@ -24,6 +24,7 @@ namespace YOLOForAim
         private const int DefaultAimTrackedAcquireDistancePixels = 90;
         private const int DefaultAimStopLockSquareSizePixels = 36;
         private const int DefaultAimStopLockTopOffsetPixels = 18;
+        private const int PickScreenColorDelayMs = 1500;
         private const float AimHeightHighConfidenceThreshold = 0.65f;
         private const float AimHeightHighConfidenceBlend = 0.45f;
         private const float AimHeightLowConfidenceBlend = 0.12f;
@@ -560,7 +561,33 @@ namespace YOLOForAim
             UpdateInferenceBackendUi();
         }
 
-        private void btnPickScreenColor_Click(object? sender, EventArgs e)
+        private async void btnPickScreenColor_Click(object? sender, EventArgs e)
+        {
+            btnPickScreenColor.Enabled = false;
+            btnPickScreenColor.Text = "准备取色...";
+            lblStatus.Text = $"请在 {PickScreenColorDelayMs / 1000d:F1} 秒内把鼠标移动到目标颜色上。";
+
+            try
+            {
+                await Task.Delay(PickScreenColorDelayMs);
+                if (IsDisposed)
+                {
+                    return;
+                }
+
+                ApplyScreenColorAtCursor();
+            }
+            finally
+            {
+                if (!IsDisposed)
+                {
+                    btnPickScreenColor.Enabled = true;
+                    btnPickScreenColor.Text = "延迟取鼠标色";
+                }
+            }
+        }
+
+        private void ApplyScreenColorAtCursor()
         {
             Color color = GetScreenColorAtCursor();
             (float hue, int saturation, int value) = RgbToHsv(color.R, color.G, color.B);
