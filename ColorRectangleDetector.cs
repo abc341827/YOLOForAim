@@ -13,10 +13,18 @@ internal sealed class ColorRectangleDetector : IDetector
     private const float MinVerticalOverlapRatio = 0.65f;
     private const int MergeGapPixels = 3;
     private const int HorizontalCloseGapPixels = 6;
+    private const float DuplicateIouThreshold = 0.45f;
+    private const float DuplicateContainmentThreshold = 0.72f;
+    private const float DuplicateCenterContainmentPaddingPixels = 2f;
+    private const int StableDetectionHoldMs = 140;
+    private const float StableDetectionMinScore = 0.85f;
+    private const float PartialDetectionAreaRatio = 0.82f;
 
     private readonly float scoreThreshold;
     private ColorDetectionOptions primaryColorOptions;
     private ColorDetectionOptions secondaryColorOptions;
+    private IReadOnlyList<DetectionResult> stableDetections = Array.Empty<DetectionResult>();
+    private long stableDetectionsTick;
 
     public string ModelSummary
     {
@@ -101,7 +109,8 @@ internal sealed class ColorRectangleDetector : IDetector
             }
         }
 
-        return new DetectionRunResult(SuppressDuplicateDetections(detections));
+        IReadOnlyList<DetectionResult> suppressedDetections = SuppressDuplicateDetections(detections);
+        return new DetectionRunResult(StabilizePartialDetections(suppressedDetections));
     }
 
     public void Dispose()
@@ -422,7 +431,7 @@ internal sealed class ColorRectangleDetector : IDetector
         var keptDetections = new List<DetectionResult>(detections.Count);
         foreach (DetectionResult detection in detections.OrderByDescending(static item => item.Box.Width * item.Box.Height).ThenByDescending(static item => item.Score))
         {
-            if (keptDetections.Any(kept => CalculateIou(kept.Box, detection.Box) > 0.55f))
+            if (keptDetections.Any(kept => IsDuplicateOrPartialDetection(kept.Box, detection.Box)))
             {
                 continue;
             }
@@ -433,15 +442,101 @@ internal sealed class ColorRectangleDetector : IDetector
         return keptDetections;
     }
 
+    private IReadOnlyList<DetectionResult> StabilizePartialDetections(IReadOnlyList<DetectionResult> detections)
+    {
+        long now = Environment.TickCount64;
+        if (stableDetections.Count == 0 || now - stableDetectionsTick > StableDetectionHoldMs)
+        {
+            stableDetections = detections.ToArray();
+            stableDetectionsTick = now;
+            return stableDetections;
+        }
+
+        DetectionResult[] stabilizedDetections = detections.ToArray();
+        for (int index = 0; index < stabilizedDetections.Length; index++)
+        {
+            DetectionResult current = stabilizedDetections[index];
+            DetectionResult? previous = FindPreviousFullDetection(current);
+            if (previous is null)
+            {
+                continue;
+            }
+
+            stabilizedDetections[index] = current with
+            {
+                Box = previous.Box,
+                Score = Math.Max(current.Score, previous.Score)
+            };
+        }
+
+        stableDetections = SuppressDuplicateDetections(stabilizedDetections.ToList()).ToArray();
+        stableDetectionsTick = now;
+        return stableDetections;
+    }
+
+    private DetectionResult? FindPreviousFullDetection(DetectionResult current)
+    {
+        float currentArea = current.Box.Width * current.Box.Height;
+        DetectionResult? bestPrevious = null;
+        float bestArea = 0f;
+
+        foreach (DetectionResult previous in stableDetections)
+        {
+            if (previous.ClassId != current.ClassId || previous.Score < StableDetectionMinScore)
+            {
+                continue;
+            }
+
+            float previousArea = previous.Box.Width * previous.Box.Height;
+            if (previousArea <= currentArea || currentArea > previousArea * PartialDetectionAreaRatio)
+            {
+                continue;
+            }
+
+            if (!IsDuplicateOrPartialDetection(previous.Box, current.Box))
+            {
+                continue;
+            }
+
+            if (previousArea > bestArea)
+            {
+                bestPrevious = previous;
+                bestArea = previousArea;
+            }
+        }
+
+        return bestPrevious;
+    }
+
+    private static bool IsDuplicateOrPartialDetection(RectangleF keptBox, RectangleF candidateBox)
+    {
+        if (CalculateIou(keptBox, candidateBox) >= DuplicateIouThreshold)
+        {
+            return true;
+        }
+
+        float candidateArea = candidateBox.Width * candidateBox.Height;
+        if (candidateArea <= 0f)
+        {
+            return true;
+        }
+
+        float intersectionArea = CalculateIntersectionArea(keptBox, candidateBox);
+        if (intersectionArea / candidateArea >= DuplicateContainmentThreshold)
+        {
+            return true;
+        }
+
+        RectangleF paddedKeptBox = RectangleF.Inflate(keptBox, DuplicateCenterContainmentPaddingPixels, DuplicateCenterContainmentPaddingPixels);
+        PointF candidateCenter = new(candidateBox.Left + (candidateBox.Width / 2f), candidateBox.Top + (candidateBox.Height / 2f));
+        return paddedKeptBox.Contains(candidateCenter) &&
+            candidateBox.Width <= keptBox.Width * 1.1f &&
+            candidateBox.Height <= keptBox.Height * 1.35f;
+    }
+
     private static float CalculateIou(RectangleF a, RectangleF b)
     {
-        float left = Math.Max(a.Left, b.Left);
-        float top = Math.Max(a.Top, b.Top);
-        float right = Math.Min(a.Right, b.Right);
-        float bottom = Math.Min(a.Bottom, b.Bottom);
-        float intersectionWidth = Math.Max(0, right - left);
-        float intersectionHeight = Math.Max(0, bottom - top);
-        float intersectionArea = intersectionWidth * intersectionHeight;
+        float intersectionArea = CalculateIntersectionArea(a, b);
         if (intersectionArea <= 0)
         {
             return 0f;
@@ -449,6 +544,17 @@ internal sealed class ColorRectangleDetector : IDetector
 
         float unionArea = (a.Width * a.Height) + (b.Width * b.Height) - intersectionArea;
         return unionArea <= 0 ? 0f : intersectionArea / unionArea;
+    }
+
+    private static float CalculateIntersectionArea(RectangleF a, RectangleF b)
+    {
+        float left = Math.Max(a.Left, b.Left);
+        float top = Math.Max(a.Top, b.Top);
+        float right = Math.Min(a.Right, b.Right);
+        float bottom = Math.Min(a.Bottom, b.Bottom);
+        float intersectionWidth = Math.Max(0, right - left);
+        float intersectionHeight = Math.Max(0, bottom - top);
+        return intersectionWidth * intersectionHeight;
     }
 
     private enum ColorKind : byte
