@@ -783,12 +783,13 @@
             this.cmbInferenceBackend.FormattingEnabled = true;
             this.cmbInferenceBackend.Items.AddRange(new object[] {
             "ONNX Runtime / DirectML",
-            "TensorRT Engine"});
+            "TensorRT Engine",
+            "颜色检测(橙黄色矩形)"});
             this.cmbInferenceBackend.Location = new System.Drawing.Point(457, 48);
             this.cmbInferenceBackend.Name = "cmbInferenceBackend";
             this.cmbInferenceBackend.Size = new System.Drawing.Size(191, 23);
             this.cmbInferenceBackend.TabIndex = 38;
-            this.toolTipDescriptions.SetToolTip(this.cmbInferenceBackend, "切换识别后端。TensorRT Engine 模式会直接加载输出目录中的 .engine 文件。");
+            this.toolTipDescriptions.SetToolTip(this.cmbInferenceBackend, "切换识别后端。颜色检测模式不加载模型，直接按橙黄色横向矩形筛选。");
             this.cmbInferenceBackend.SelectedIndexChanged += new System.EventHandler(this.cmbInferenceBackend_SelectedIndexChanged);
             // 
             // lblHandle

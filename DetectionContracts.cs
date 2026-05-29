@@ -12,7 +12,8 @@ internal interface IDetector : IDisposable
 internal enum DetectorBackend
 {
     OnnxRuntimeDirectMl,
-    TensorRtEngine
+    TensorRtEngine,
+    ColorRectangle
 }
 
 internal sealed record DetectionResult(RectangleF Box, float Score, int ClassId, string Label);
