@@ -42,7 +42,7 @@ namespace YOLOForAim
         private const float AimLargePullDistancePixels = 72f;
         private const float ConsumedAimTargetIouThreshold = 0.72f;
         private const float ConsumedAimTargetCenterTolerancePixels = 14f;
-        private const int ConsumedAimTargetMissingGraceMs = 350;
+        private const int ConsumedAimTargetMissingGraceMs = 0;
         private const int AimReacquireAfterLargePullFrames = 2;
         private const int AimReacquireAfterLargePullMs = 90;
         private const float OverlayTrackMaxSpeedPixelsPerSecond = 900f;

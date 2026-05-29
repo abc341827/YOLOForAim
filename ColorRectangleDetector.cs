@@ -12,17 +12,10 @@ internal sealed class ColorRectangleDetector : IDetector
     private const float MinFillRatio = 0.5f;
     private const float MinVerticalOverlapRatio = 0.65f;
     private const int MergeGapPixels = 3;
-    private const float StabilizedPositionBlend = 0.35f;
-    private const float StabilizedSizeBlend = 0.18f;
-    private const float StabilizedMinMatchIou = 0.18f;
-    private const float StabilizedMinMatchDistancePixels = 24f;
-    private const int StabilizedMaxMissingFrames = 2;
 
     private readonly float scoreThreshold;
     private ColorDetectionOptions primaryColorOptions;
     private ColorDetectionOptions secondaryColorOptions;
-    private List<TrackedColorDetection> trackedDetections = new();
-    private int detectionFrameIndex;
 
     public string ModelSummary
     {
@@ -106,9 +99,7 @@ internal sealed class ColorRectangleDetector : IDetector
             }
         }
 
-        IReadOnlyList<DetectionResult> filteredDetections = SuppressDuplicateDetections(detections);
-        IReadOnlyList<DetectionResult> stabilizedDetections = StabilizeDetections(filteredDetections);
-        return new DetectionRunResult(stabilizedDetections);
+        return new DetectionRunResult(SuppressDuplicateDetections(detections));
     }
 
     public void Dispose()
@@ -388,140 +379,6 @@ internal sealed class ColorRectangleDetector : IDetector
         return keptDetections;
     }
 
-    private IReadOnlyList<DetectionResult> StabilizeDetections(IReadOnlyList<DetectionResult> detections)
-    {
-        detectionFrameIndex++;
-        if (detections.Count == 0)
-        {
-            trackedDetections = trackedDetections
-                .Where(track => detectionFrameIndex - track.LastSeenFrame <= StabilizedMaxMissingFrames)
-                .ToList();
-            return trackedDetections.Select(track => track.Detection).ToArray();
-        }
-
-        var stabilizedDetections = new List<DetectionResult>(detections.Count);
-        var matchedTrackIndexes = new HashSet<int>();
-
-        foreach (DetectionResult detection in detections)
-        {
-            int matchedTrackIndex = FindBestTrackMatch(detection, matchedTrackIndexes);
-            DetectionResult stabilizedDetection = matchedTrackIndex >= 0
-                ? SmoothDetection(trackedDetections[matchedTrackIndex].Detection, detection)
-                : detection;
-
-            if (matchedTrackIndex >= 0)
-            {
-                matchedTrackIndexes.Add(matchedTrackIndex);
-                trackedDetections[matchedTrackIndex] = new TrackedColorDetection(stabilizedDetection, detectionFrameIndex);
-            }
-            else
-            {
-                trackedDetections.Add(new TrackedColorDetection(stabilizedDetection, detectionFrameIndex));
-            }
-
-            stabilizedDetections.Add(stabilizedDetection);
-        }
-
-        for (int index = trackedDetections.Count - 1; index >= 0; index--)
-        {
-            if (detectionFrameIndex - trackedDetections[index].LastSeenFrame > StabilizedMaxMissingFrames)
-            {
-                trackedDetections.RemoveAt(index);
-            }
-        }
-
-        return SuppressDuplicateDetections(stabilizedDetections);
-    }
-
-    private int FindBestTrackMatch(DetectionResult detection, HashSet<int> matchedTrackIndexes)
-    {
-        int bestTrackIndex = -1;
-        float bestScore = float.MinValue;
-        PointF detectionCenter = GetBoxCenter(detection.Box);
-
-        for (int index = 0; index < trackedDetections.Count; index++)
-        {
-            if (matchedTrackIndexes.Contains(index))
-            {
-                continue;
-            }
-
-            DetectionResult trackedDetection = trackedDetections[index].Detection;
-            if (trackedDetection.ClassId != detection.ClassId || !string.Equals(trackedDetection.Label, detection.Label, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            float iou = CalculateIou(trackedDetection.Box, detection.Box);
-            PointF trackedCenter = GetBoxCenter(trackedDetection.Box);
-            float distanceSquared = GetDistanceSquared(trackedCenter, detectionCenter);
-            float maxDistance = Math.Max(StabilizedMinMatchDistancePixels, Math.Max(trackedDetection.Box.Width, trackedDetection.Box.Height) * 0.65f);
-            if (iou < StabilizedMinMatchIou && distanceSquared > maxDistance * maxDistance)
-            {
-                continue;
-            }
-
-            float score = iou - (distanceSquared / Math.Max(1f, maxDistance * maxDistance));
-            if (score > bestScore)
-            {
-                bestScore = score;
-                bestTrackIndex = index;
-            }
-        }
-
-        return bestTrackIndex;
-    }
-
-    private static DetectionResult SmoothDetection(DetectionResult previousDetection, DetectionResult currentDetection)
-    {
-        PointF previousCenter = GetBoxCenter(previousDetection.Box);
-        PointF currentCenter = GetBoxCenter(currentDetection.Box);
-        PointF smoothedCenter = LerpPoint(previousCenter, currentCenter, StabilizedPositionBlend);
-        SizeF smoothedSize = LerpSize(previousDetection.Box.Size, currentDetection.Box.Size, StabilizedSizeBlend);
-        RectangleF smoothedBox = CreateCenteredBox(smoothedCenter, smoothedSize);
-
-        return currentDetection with
-        {
-            Box = smoothedBox,
-            Score = Math.Max(previousDetection.Score, currentDetection.Score)
-        };
-    }
-
-    private static PointF GetBoxCenter(RectangleF box)
-    {
-        return new PointF(box.Left + (box.Width / 2f), box.Top + (box.Height / 2f));
-    }
-
-    private static float GetDistanceSquared(PointF a, PointF b)
-    {
-        float deltaX = a.X - b.X;
-        float deltaY = a.Y - b.Y;
-        return (deltaX * deltaX) + (deltaY * deltaY);
-    }
-
-    private static PointF LerpPoint(PointF from, PointF to, float amount)
-    {
-        return new PointF(
-            from.X + ((to.X - from.X) * amount),
-            from.Y + ((to.Y - from.Y) * amount));
-    }
-
-    private static SizeF LerpSize(SizeF from, SizeF to, float amount)
-    {
-        return new SizeF(
-            from.Width + ((to.Width - from.Width) * amount),
-            from.Height + ((to.Height - from.Height) * amount));
-    }
-
-    private static RectangleF CreateCenteredBox(PointF center, SizeF size)
-    {
-        return new RectangleF(
-            center.X - (size.Width / 2f),
-            center.Y - (size.Height / 2f),
-            size.Width,
-            size.Height);
-    }
-
     private static float CalculateIou(RectangleF a, RectangleF b)
     {
         float left = Math.Max(a.Left, b.Left);
@@ -546,8 +403,6 @@ internal sealed class ColorRectangleDetector : IDetector
         Secondary = 2,
         Pair = 3
     }
-
-    private sealed record TrackedColorDetection(DetectionResult Detection, int LastSeenFrame);
 
     private readonly record struct ComponentBox(int MinX, int MinY, int MaxX, int MaxY, int Area, ColorKind Kind)
     {
