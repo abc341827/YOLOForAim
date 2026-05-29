@@ -17,6 +17,8 @@ internal sealed class ColorRectangleDetector : IDetector
     private const float DuplicateContainmentThreshold = 0.72f;
     private const float DuplicateCenterContainmentPaddingPixels = 2f;
     private const float DetectionBoxWidthWindowDivisor = 12.8f;
+    private const float MinOriginalWidthToScaledWidthRatio = 0.28f;
+    private const float MinOriginalAreaToScaledAreaRatio = 0.18f;
 
     private readonly float scoreThreshold;
     private ColorDetectionOptions primaryColorOptions;
@@ -406,8 +408,21 @@ internal sealed class ColorRectangleDetector : IDetector
             return null;
         }
 
+        float scaledWidth = sourceWidth / DetectionBoxWidthWindowDivisor;
+        if (bounds.Width < scaledWidth * MinOriginalWidthToScaledWidthRatio)
+        {
+            return null;
+        }
+
+        float scaledAreaRatio = component.Area / Math.Max(1f, scaledWidth * bounds.Height);
+        if (scaledAreaRatio < MinOriginalAreaToScaledAreaRatio)
+        {
+            return null;
+        }
+
         float aspectScore = Math.Clamp((aspectRatio - MinAspectRatio) / 2.5f, 0f, 1f);
-        float score = Math.Clamp((fillRatio * 0.75f) + (aspectScore * 0.25f), 0f, 1f);
+        float sizeScore = Math.Clamp(scaledAreaRatio / 0.65f, 0f, 1f);
+        float score = Math.Clamp((fillRatio * 0.55f) + (aspectScore * 0.2f) + (sizeScore * 0.25f), 0f, 1f);
         if (score < scoreThreshold)
         {
             return null;
