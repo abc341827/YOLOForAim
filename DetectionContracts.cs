@@ -21,6 +21,7 @@ internal sealed record DetectionRunResult(IReadOnlyList<DetectionResult> Detecti
 internal sealed record ColorDetectionOptions(float Hue, int Saturation, int Value, float HueTolerance, int SaturationTolerance, int ValueTolerance)
 {
     public static ColorDetectionOptions Default { get; } = new(31f, 180, 220, 14f, 70, 90);
+    public static ColorDetectionOptions DefaultSecondary { get; } = new(0f, 0, 20, 30f, 45, 55);
 }
 
-internal sealed record DetectorOptions(DetectorBackend Backend, bool PreferGpu, float ScoreThreshold, string? TensorRtEnginePath = null, ColorDetectionOptions? ColorDetection = null);
+internal sealed record DetectorOptions(DetectorBackend Backend, bool PreferGpu, float ScoreThreshold, string? TensorRtEnginePath = null, ColorDetectionOptions? PrimaryColorDetection = null, ColorDetectionOptions? SecondaryColorDetection = null);

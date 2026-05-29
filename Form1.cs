@@ -40,6 +40,9 @@ namespace YOLOForAim
         private const float AimSameTargetOverlapThreshold = 0.12f;
         private const float StableTargetIouThreshold = 0.35f;
         private const float AimLargePullDistancePixels = 72f;
+        private const float ConsumedAimTargetIouThreshold = 0.72f;
+        private const float ConsumedAimTargetCenterTolerancePixels = 14f;
+        private const int ConsumedAimTargetMissingGraceMs = 350;
         private const int AimReacquireAfterLargePullFrames = 2;
         private const int AimReacquireAfterLargePullMs = 90;
         private const float OverlayTrackMaxSpeedPixelsPerSecond = 900f;
@@ -80,7 +83,7 @@ namespace YOLOForAim
         private bool currentCenterRoiOnly;
         private int currentRoiSize;
         private int currentPreviewInterval;
-        private float currentAimPointHeightRatio;
+        private float currentAimPointBelowOffsetPixels;
         private float currentAimDeadzonePixels;
         private float currentAimSmoothingFactor;
         private float currentAimSpeedMultiplier;
@@ -111,10 +114,12 @@ namespace YOLOForAim
         private bool hasAppliedInitialLockPull;
         private long stableTargetSizeHoldUntilTick;
         private long pendingTargetSwitchTick;
+        private readonly List<ConsumedAimTarget> consumedAimTargets = new();
         private int suppressOverlayFrameVersion = -1;
         private int suspendAimUntilFrameVersion = -1;
         private long suspendAimUntilTick;
-        private ColorDetectionOptions currentColorDetectionOptions = ColorDetectionOptions.Default;
+        private ColorDetectionOptions currentPrimaryColorDetectionOptions = ColorDetectionOptions.Default;
+        private ColorDetectionOptions currentSecondaryColorDetectionOptions = ColorDetectionOptions.DefaultSecondary;
 
         public Form1()
         {
@@ -213,7 +218,8 @@ namespace YOLOForAim
                     chkPreferGpu.Checked,
                     (float)numScoreThreshold.Value / 100f,
                     tensorRtEnginePath,
-                    currentColorDetectionOptions);
+                    currentPrimaryColorDetectionOptions,
+                    currentSecondaryColorDetectionOptions);
 
                 detector = selectedBackend switch
                 {
@@ -240,7 +246,7 @@ namespace YOLOForAim
             currentCenterRoiOnly = chkCenterRoi.Checked;
             currentRoiSize = (int)numRoiSize.Value;
             currentPreviewInterval = Math.Max(1, (int)numPreviewInterval.Value);
-            currentAimPointHeightRatio = (float)numAimHeightPercent.Value / 100f;
+            currentAimPointBelowOffsetPixels = (float)numAimHeightPercent.Value;
             currentAimDeadzonePixels = (float)numAimDeadzone.Value;
             currentAimSmoothingFactor = (float)numAimSmoothing.Value / 100f;
             currentAimSpeedMultiplier = (float)numAimSpeedMultiplier.Value / 100f;
@@ -563,9 +569,22 @@ namespace YOLOForAim
 
         private async void btnPickScreenColor_Click(object? sender, EventArgs e)
         {
+            await PickScreenColorAsync(isSecondaryColor: false);
+        }
+
+        private async void btnPickSecondaryScreenColor_Click(object? sender, EventArgs e)
+        {
+            await PickScreenColorAsync(isSecondaryColor: true);
+        }
+
+        private async Task PickScreenColorAsync(bool isSecondaryColor)
+        {
             btnPickScreenColor.Enabled = false;
-            btnPickScreenColor.Text = "准备取色...";
-            lblStatus.Text = $"请在 {PickScreenColorDelayMs / 1000d:F1} 秒内把鼠标移动到目标颜色上。";
+            btnPickSecondaryScreenColor.Enabled = false;
+            Button activeButton = isSecondaryColor ? btnPickSecondaryScreenColor : btnPickScreenColor;
+            string originalText = activeButton.Text;
+            activeButton.Text = "准备取色...";
+            lblStatus.Text = $"请在 {PickScreenColorDelayMs / 1000d:F1} 秒内把鼠标移动到{(isSecondaryColor ? "副色" : "主色")}目标上。";
 
             try
             {
@@ -575,31 +594,43 @@ namespace YOLOForAim
                     return;
                 }
 
-                ApplyScreenColorAtCursor();
+                ApplyScreenColorAtCursor(isSecondaryColor);
             }
             finally
             {
                 if (!IsDisposed)
                 {
                     btnPickScreenColor.Enabled = true;
-                    btnPickScreenColor.Text = "延迟取鼠标色";
+                    btnPickSecondaryScreenColor.Enabled = true;
+                    activeButton.Text = originalText;
                 }
             }
         }
 
-        private void ApplyScreenColorAtCursor()
+        private void ApplyScreenColorAtCursor(bool isSecondaryColor)
         {
             Color color = GetScreenColorAtCursor();
             (float hue, int saturation, int value) = RgbToHsv(color.R, color.G, color.B);
-            currentColorDetectionOptions = new ColorDetectionOptions(hue, saturation, value, 10f, 55, 70);
+            ColorDetectionOptions pickedOptions = isSecondaryColor
+                ? new ColorDetectionOptions(hue, saturation, value, 15f, 55, 70)
+                : new ColorDetectionOptions(hue, saturation, value, 10f, 55, 70);
+            if (isSecondaryColor)
+            {
+                currentSecondaryColorDetectionOptions = pickedOptions;
+            }
+            else
+            {
+                currentPrimaryColorDetectionOptions = pickedOptions;
+            }
+
             if (detector is ColorRectangleDetector colorRectangleDetector)
             {
-                colorRectangleDetector.UpdateColorDetectionOptions(currentColorDetectionOptions);
+                colorRectangleDetector.UpdateColorDetectionOptions(currentPrimaryColorDetectionOptions, currentSecondaryColorDetectionOptions);
                 diagnosticsHeader = colorRectangleDetector.ModelSummary;
                 UpdateDiagnosticsText();
             }
 
-            string pickedColorText = $"HEX #{color.R:X2}{color.G:X2}{color.B:X2} | RGB({color.R}, {color.G}, {color.B}) | HSV(H={hue:F1}, S={saturation}, V={value}) | 已应用到颜色检测";
+            string pickedColorText = $"{(isSecondaryColor ? "副色" : "主色")} HEX #{color.R:X2}{color.G:X2}{color.B:X2} | RGB({color.R}, {color.G}, {color.B}) | HSV(H={hue:F1}, S={saturation}, V={value}) | 已应用到颜色检测";
             txtPickedColor.Text = pickedColorText;
             lblStatus.Text = $"已取色: {pickedColorText}";
         }
@@ -622,7 +653,7 @@ namespace YOLOForAim
                 lblStatus.Text = selectedBackend switch
                 {
                     DetectorBackend.TensorRtEngine => $"TensorRT Engine 待命: engine={(enginePath is null ? "(未找到)" : Path.GetFileName(enginePath))}",
-                    DetectorBackend.ColorRectangle => $"颜色检测待命: HSV(H={currentColorDetectionOptions.Hue:F1}, S={currentColorDetectionOptions.Saturation}, V={currentColorDetectionOptions.Value}) 横向矩形",
+                    DetectorBackend.ColorRectangle => $"颜色检测待命: 主色 HSV(H={currentPrimaryColorDetectionOptions.Hue:F1}, S={currentPrimaryColorDetectionOptions.Saturation}, V={currentPrimaryColorDetectionOptions.Value}) + 副色 HSV(H={currentSecondaryColorDetectionOptions.Hue:F1}, S={currentSecondaryColorDetectionOptions.Saturation}, V={currentSecondaryColorDetectionOptions.Value})",
                     _ => $"DirectML 待命: ONNX={Path.GetFileName(modelPath)}"
                 };
             }
@@ -967,6 +998,7 @@ namespace YOLOForAim
 
             if (detections.Count == 0)
             {
+                PruneConsumedAimTargets(detections, now);
                 missedTargetFrames++;
                 if (missedTargetFrames >= currentAimMaxMissedFrames)
                 {
@@ -977,6 +1009,7 @@ namespace YOLOForAim
 
             PointF? previousLockedTargetScreenPoint = lockedTargetScreenPoint;
             PointF aimReferencePoint = GetAimReferencePoint(captureBounds);
+            PruneConsumedAimTargets(detections, now);
             TargetCandidate? nearestDetection = SelectTargetCandidate(detections, captureBounds, aimReferencePoint);
 
             if (nearestDetection is null)
@@ -1079,6 +1112,7 @@ namespace YOLOForAim
             }
 
             SendRelativeMouseMove(finalMoveX, finalMoveY);
+            MarkAimTargetConsumed(nearestDetection.Detection, now);
             bool shouldClearCurrentLock = distanceToAimPoint >= AimLargePullDistancePixels;
             if (shouldClearCurrentLock)
             {
@@ -1106,6 +1140,7 @@ namespace YOLOForAim
             lastAimMoveFrameVersion = -1;
             lastPendingCompensationFrameVersion = -1;
             pendingAimCompensation = PointF.Empty;
+            consumedAimTargets.Clear();
             stableTargetSizeHoldUntilTick = 0;
             suppressOverlayFrameVersion = -1;
             suspendAimUntilFrameVersion = -1;
@@ -1272,6 +1307,11 @@ namespace YOLOForAim
 
             foreach (DetectionResult detection in detections)
             {
+                if (IsAimTargetConsumed(detection))
+                {
+                    continue;
+                }
+
                 RectangleF detectionBounds = GetExpandedDetectionBounds(captureBounds, detection, padding);
                 if (!detectionBounds.Contains(referencePoint))
                 {
@@ -1296,6 +1336,11 @@ namespace YOLOForAim
 
             foreach (DetectionResult detection in detections)
             {
+                if (IsAimTargetConsumed(detection))
+                {
+                    continue;
+                }
+
                 PointF targetPoint = GetAimPoint(captureBounds, detection);
                 double distanceSquared = GetDistanceSquared(referencePoint, targetPoint);
                 if (distanceSquared > maxDistanceSquared)
@@ -1310,6 +1355,80 @@ namespace YOLOForAim
             }
 
             return bestCandidate;
+        }
+
+        private void MarkAimTargetConsumed(DetectionResult detection, long now)
+        {
+            for (int index = 0; index < consumedAimTargets.Count; index++)
+            {
+                if (!IsSameConsumedAimTarget(consumedAimTargets[index], detection))
+                {
+                    continue;
+                }
+
+                consumedAimTargets[index] = consumedAimTargets[index] with
+                {
+                    Box = detection.Box,
+                    LastSeenTick = now
+                };
+                return;
+            }
+
+            consumedAimTargets.Add(new ConsumedAimTarget(detection.ClassId, detection.Box, now));
+        }
+
+        private void PruneConsumedAimTargets(IReadOnlyList<DetectionResult> detections, long now)
+        {
+            for (int consumedIndex = consumedAimTargets.Count - 1; consumedIndex >= 0; consumedIndex--)
+            {
+                ConsumedAimTarget consumedTarget = consumedAimTargets[consumedIndex];
+                DetectionResult? matchingDetection = detections.FirstOrDefault(detection => IsSameConsumedAimTarget(consumedTarget, detection));
+                if (matchingDetection is not null)
+                {
+                    consumedAimTargets[consumedIndex] = consumedTarget with
+                    {
+                        Box = matchingDetection.Box,
+                        LastSeenTick = now
+                    };
+                    continue;
+                }
+
+                if ((now - consumedTarget.LastSeenTick) > ConsumedAimTargetMissingGraceMs)
+                {
+                    consumedAimTargets.RemoveAt(consumedIndex);
+                }
+            }
+        }
+
+        private bool IsAimTargetConsumed(DetectionResult detection)
+        {
+            return consumedAimTargets.Any(consumedTarget => IsSameConsumedAimTarget(consumedTarget, detection));
+        }
+
+        private static bool IsSameConsumedAimTarget(ConsumedAimTarget consumedTarget, DetectionResult detection)
+        {
+            if (consumedTarget.ClassId != detection.ClassId)
+            {
+                return false;
+            }
+
+            if (CalculateIou(consumedTarget.Box, detection.Box) >= ConsumedAimTargetIouThreshold)
+            {
+                return true;
+            }
+
+            PointF consumedCenter = GetBoxCenter(consumedTarget.Box);
+            PointF detectionCenter = GetBoxCenter(detection.Box);
+            if (GetDistanceSquared(consumedCenter, detectionCenter) >
+                (ConsumedAimTargetCenterTolerancePixels * ConsumedAimTargetCenterTolerancePixels))
+            {
+                return false;
+            }
+
+            float widthDelta = Math.Abs(consumedTarget.Box.Width - detection.Box.Width);
+            float heightDelta = Math.Abs(consumedTarget.Box.Height - detection.Box.Height);
+            return widthDelta <= Math.Max(4f, consumedTarget.Box.Width * 0.2f) &&
+                heightDelta <= Math.Max(4f, consumedTarget.Box.Height * 0.2f);
         }
 
         private float GetCurrentAimAcquireDistancePixels()
@@ -1372,9 +1491,10 @@ namespace YOLOForAim
 
         private PointF GetAimPoint(Rectangle captureBounds, DetectionResult detection, float effectiveHeight)
         {
+            _ = effectiveHeight;
             return new PointF(
                 captureBounds.Left + detection.Box.X + (detection.Box.Width / 2f),
-                captureBounds.Top + detection.Box.Y + (effectiveHeight * currentAimPointHeightRatio));
+                captureBounds.Top + detection.Box.Bottom + currentAimPointBelowOffsetPixels);
         }
 
         private static PointF GetAimReferencePoint(Rectangle captureBounds)
@@ -1730,6 +1850,7 @@ namespace YOLOForAim
             string InferenceBackend = nameof(DetectorBackend.OnnxRuntimeDirectMl));
 
         private sealed record TargetCandidate(DetectionResult Detection, PointF TargetPoint, double DistanceSquared);
+        private sealed record ConsumedAimTarget(int ClassId, RectangleF Box, long LastSeenTick);
         #endregion
     }
 

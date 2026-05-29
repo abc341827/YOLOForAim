@@ -10,29 +10,34 @@ internal sealed class ColorRectangleDetector : IDetector
     private const float MinAspectRatio = 1.5f;
     private const float MaxAspectRatio = 24f;
     private const float MinFillRatio = 0.5f;
+    private const float MinVerticalOverlapRatio = 0.65f;
     private const int MergeGapPixels = 3;
 
     private readonly float scoreThreshold;
-    private ColorDetectionOptions colorOptions;
+    private ColorDetectionOptions primaryColorOptions;
+    private ColorDetectionOptions secondaryColorOptions;
 
     public string ModelSummary
     {
         get
         {
-            ColorDetectionOptions options = colorOptions;
-            return $"颜色检测: 目标 HSV(H={options.Hue:F1}, S={options.Saturation}, V={options.Value})，容差 H±{options.HueTolerance:F1}, S±{options.SaturationTolerance}, V±{options.ValueTolerance}，仅横向实心矩形。";
+            ColorDetectionOptions primary = primaryColorOptions;
+            ColorDetectionOptions secondary = secondaryColorOptions;
+            return $"颜色检测: 主色 HSV(H={primary.Hue:F1}, S={primary.Saturation}, V={primary.Value})，副色 HSV(H={secondary.Hue:F1}, S={secondary.Saturation}, V={secondary.Value})；支持主色横向矩形或主色+副色水平相邻矩形。";
         }
     }
 
     public ColorRectangleDetector(DetectorOptions detectorOptions)
     {
         scoreThreshold = detectorOptions.ScoreThreshold;
-        colorOptions = detectorOptions.ColorDetection ?? ColorDetectionOptions.Default;
+        primaryColorOptions = detectorOptions.PrimaryColorDetection ?? ColorDetectionOptions.Default;
+        secondaryColorOptions = detectorOptions.SecondaryColorDetection ?? ColorDetectionOptions.DefaultSecondary;
     }
 
-    public void UpdateColorDetectionOptions(ColorDetectionOptions options)
+    public void UpdateColorDetectionOptions(ColorDetectionOptions primaryOptions, ColorDetectionOptions secondaryOptions)
     {
-        colorOptions = options;
+        primaryColorOptions = primaryOptions;
+        secondaryColorOptions = secondaryOptions;
     }
 
     public DetectionRunResult Detect(byte[] sourcePixels, int sourceWidth, int sourceHeight, int sourceStride, Rectangle sourceRegion)
@@ -40,22 +45,57 @@ internal sealed class ColorRectangleDetector : IDetector
         Rectangle region = NormalizeSourceRegion(sourceRegion, sourceWidth, sourceHeight);
         int regionWidth = region.Width;
         int regionHeight = region.Height;
-        ColorDetectionOptions currentColorOptions = colorOptions;
-        byte[] mask = BuildColorMask(sourcePixels, sourceStride, region, currentColorOptions);
+        ColorDetectionOptions primary = primaryColorOptions;
+        ColorDetectionOptions secondary = secondaryColorOptions;
+        byte[] mask = BuildColorMask(sourcePixels, sourceStride, region, primary, secondary);
         List<ComponentBox> components = FindComponents(mask, regionWidth, regionHeight);
         List<ComponentBox> mergedComponents = MergeNearbyComponents(components);
 
-        var detections = new List<DetectionResult>(mergedComponents.Count);
-        foreach (ComponentBox component in mergedComponents)
+        var detections = new List<DetectionResult>();
+        var pairedPrimaryIndexes = new HashSet<int>();
+
+        for (int primaryIndex = 0; primaryIndex < mergedComponents.Count; primaryIndex++)
         {
-            DetectionResult? detection = CreateDetection(component, region.Location);
+            ComponentBox primaryComponent = mergedComponents[primaryIndex];
+            if (primaryComponent.Kind != ColorKind.Primary)
+            {
+                continue;
+            }
+
+            for (int secondaryIndex = 0; secondaryIndex < mergedComponents.Count; secondaryIndex++)
+            {
+                ComponentBox secondaryComponent = mergedComponents[secondaryIndex];
+                if (secondaryComponent.Kind != ColorKind.Secondary || !CanCreateHorizontalPair(primaryComponent, secondaryComponent))
+                {
+                    continue;
+                }
+
+                DetectionResult? pairDetection = CreateDetection(primaryComponent.MergeAsPair(secondaryComponent), region.Location, "ColorPair");
+                if (pairDetection is not null)
+                {
+                    detections.Add(pairDetection);
+                    pairedPrimaryIndexes.Add(primaryIndex);
+                    break;
+                }
+            }
+        }
+
+        for (int index = 0; index < mergedComponents.Count; index++)
+        {
+            ComponentBox component = mergedComponents[index];
+            if (component.Kind != ColorKind.Primary || pairedPrimaryIndexes.Contains(index))
+            {
+                continue;
+            }
+
+            DetectionResult? detection = CreateDetection(component, region.Location, "ColorRect");
             if (detection is not null)
             {
                 detections.Add(detection);
             }
         }
 
-        return new DetectionRunResult(detections);
+        return new DetectionRunResult(SuppressDuplicateDetections(detections));
     }
 
     public void Dispose()
@@ -71,7 +111,7 @@ internal sealed class ColorRectangleDetector : IDetector
             : normalizedSourceRegion;
     }
 
-    private static byte[] BuildColorMask(byte[] pixels, int stride, Rectangle region, ColorDetectionOptions options)
+    private static byte[] BuildColorMask(byte[] pixels, int stride, Rectangle region, ColorDetectionOptions primary, ColorDetectionOptions secondary)
     {
         byte[] mask = new byte[region.Width * region.Height];
         for (int y = 0; y < region.Height; y++)
@@ -84,9 +124,13 @@ internal sealed class ColorRectangleDetector : IDetector
                 byte b = pixels[pixelOffset];
                 byte g = pixels[pixelOffset + 1];
                 byte r = pixels[pixelOffset + 2];
-                if (IsTargetColorPixel(r, g, b, options))
+                if (IsTargetColorPixel(r, g, b, primary))
                 {
-                    mask[maskRowOffset + x] = 1;
+                    mask[maskRowOffset + x] = (byte)ColorKind.Primary;
+                }
+                else if (IsTargetColorPixel(r, g, b, secondary))
+                {
+                    mask[maskRowOffset + x] = (byte)ColorKind.Secondary;
                 }
             }
         }
@@ -97,7 +141,8 @@ internal sealed class ColorRectangleDetector : IDetector
     private static bool IsTargetColorPixel(byte r, byte g, byte b, ColorDetectionOptions options)
     {
         (float hue, int saturation, int value) = RgbToHsv(r, g, b);
-        return GetHueDistance(hue, options.Hue) <= options.HueTolerance &&
+        bool hueMatches = options.Saturation <= 35 || options.Value <= 45 || GetHueDistance(hue, options.Hue) <= options.HueTolerance;
+        return hueMatches &&
             Math.Abs(saturation - options.Saturation) <= options.SaturationTolerance &&
             Math.Abs(value - options.Value) <= options.ValueTolerance;
     }
@@ -172,7 +217,8 @@ internal sealed class ColorRectangleDetector : IDetector
         int stackCount = 0;
         int startX = startIndex % width;
         int startY = startIndex / width;
-        ComponentBox component = new(startX, startY, startX, startY, 0);
+        ColorKind kind = (ColorKind)mask[startIndex];
+        ComponentBox component = new(startX, startY, startX, startY, 0, kind);
 
         mask[startIndex] = 0;
         stack[stackCount++] = startIndex;
@@ -184,16 +230,16 @@ internal sealed class ColorRectangleDetector : IDetector
             int y = index / width;
             component = component.Include(x, y);
 
-            TryPush(mask, width, height, x - 1, y, stack, ref stackCount);
-            TryPush(mask, width, height, x + 1, y, stack, ref stackCount);
-            TryPush(mask, width, height, x, y - 1, stack, ref stackCount);
-            TryPush(mask, width, height, x, y + 1, stack, ref stackCount);
+            TryPush(mask, width, height, x - 1, y, kind, stack, ref stackCount);
+            TryPush(mask, width, height, x + 1, y, kind, stack, ref stackCount);
+            TryPush(mask, width, height, x, y - 1, kind, stack, ref stackCount);
+            TryPush(mask, width, height, x, y + 1, kind, stack, ref stackCount);
         }
 
         return component;
     }
 
-    private static void TryPush(byte[] mask, int width, int height, int x, int y, int[] stack, ref int stackCount)
+    private static void TryPush(byte[] mask, int width, int height, int x, int y, ColorKind kind, int[] stack, ref int stackCount)
     {
         if ((uint)x >= (uint)width || (uint)y >= (uint)height)
         {
@@ -201,7 +247,7 @@ internal sealed class ColorRectangleDetector : IDetector
         }
 
         int index = (y * width) + x;
-        if (mask[index] == 0)
+        if (mask[index] != (byte)kind)
         {
             return;
         }
@@ -220,12 +266,12 @@ internal sealed class ColorRectangleDetector : IDetector
             {
                 for (int j = i + 1; j < components.Count; j++)
                 {
-                    if (!ShouldMerge(components[i], components[j]))
+                    if (components[i].Kind != components[j].Kind || !ShouldMerge(components[i], components[j]))
                     {
                         continue;
                     }
 
-                    components[i] = components[i].Merge(components[j]);
+                    components[i] = components[i].MergeSameKind(components[j]);
                     components.RemoveAt(j);
                     mergedAny = true;
                     j--;
@@ -243,15 +289,44 @@ internal sealed class ColorRectangleDetector : IDetector
         return expandedA.IntersectsWith(b.Bounds);
     }
 
-    private DetectionResult? CreateDetection(ComponentBox component, Point sourceOffset)
+    private static bool CanCreateHorizontalPair(ComponentBox primary, ComponentBox secondary)
     {
-        Rectangle bounds = component.Bounds;
-        if (bounds.Width < MinBoxWidth || bounds.Height < MinBoxHeight)
+        Rectangle primaryBounds = primary.Bounds;
+        Rectangle secondaryBounds = secondary.Bounds;
+        int horizontalGap = primaryBounds.Right <= secondaryBounds.Left
+            ? secondaryBounds.Left - primaryBounds.Right
+            : primaryBounds.Left <= secondaryBounds.Right ? 0 : primaryBounds.Left - secondaryBounds.Right;
+        if (horizontalGap > MergeGapPixels + 1)
         {
-            return null;
+            return false;
         }
 
-        if (bounds.Width <= bounds.Height)
+        int verticalOverlap = Math.Min(primaryBounds.Bottom, secondaryBounds.Bottom) - Math.Max(primaryBounds.Top, secondaryBounds.Top);
+        if (verticalOverlap <= 0)
+        {
+            return false;
+        }
+
+        float verticalOverlapRatio = verticalOverlap / (float)Math.Min(primaryBounds.Height, secondaryBounds.Height);
+        if (verticalOverlapRatio < MinVerticalOverlapRatio)
+        {
+            return false;
+        }
+
+        Rectangle unionBounds = Rectangle.Union(primaryBounds, secondaryBounds);
+        if (unionBounds.Width <= unionBounds.Height)
+        {
+            return false;
+        }
+
+        float fillRatio = (primary.Area + secondary.Area) / (float)(unionBounds.Width * unionBounds.Height);
+        return fillRatio >= MinFillRatio;
+    }
+
+    private DetectionResult? CreateDetection(ComponentBox component, Point sourceOffset, string label)
+    {
+        Rectangle bounds = component.Bounds;
+        if (bounds.Width < MinBoxWidth || bounds.Height < MinBoxHeight || bounds.Width <= bounds.Height)
         {
             return null;
         }
@@ -276,10 +351,56 @@ internal sealed class ColorRectangleDetector : IDetector
         }
 
         RectangleF box = new(bounds.X + sourceOffset.X, bounds.Y + sourceOffset.Y, bounds.Width, bounds.Height);
-        return new DetectionResult(box, score, 0, "ColorRect");
+        return new DetectionResult(box, score, 0, label);
     }
 
-    private readonly record struct ComponentBox(int MinX, int MinY, int MaxX, int MaxY, int Area)
+    private static IReadOnlyList<DetectionResult> SuppressDuplicateDetections(List<DetectionResult> detections)
+    {
+        if (detections.Count <= 1)
+        {
+            return detections;
+        }
+
+        var keptDetections = new List<DetectionResult>(detections.Count);
+        foreach (DetectionResult detection in detections.OrderByDescending(static item => item.Box.Width * item.Box.Height).ThenByDescending(static item => item.Score))
+        {
+            if (keptDetections.Any(kept => CalculateIou(kept.Box, detection.Box) > 0.55f))
+            {
+                continue;
+            }
+
+            keptDetections.Add(detection);
+        }
+
+        return keptDetections;
+    }
+
+    private static float CalculateIou(RectangleF a, RectangleF b)
+    {
+        float left = Math.Max(a.Left, b.Left);
+        float top = Math.Max(a.Top, b.Top);
+        float right = Math.Min(a.Right, b.Right);
+        float bottom = Math.Min(a.Bottom, b.Bottom);
+        float intersectionWidth = Math.Max(0, right - left);
+        float intersectionHeight = Math.Max(0, bottom - top);
+        float intersectionArea = intersectionWidth * intersectionHeight;
+        if (intersectionArea <= 0)
+        {
+            return 0f;
+        }
+
+        float unionArea = (a.Width * a.Height) + (b.Width * b.Height) - intersectionArea;
+        return unionArea <= 0 ? 0f : intersectionArea / unionArea;
+    }
+
+    private enum ColorKind : byte
+    {
+        Primary = 1,
+        Secondary = 2,
+        Pair = 3
+    }
+
+    private readonly record struct ComponentBox(int MinX, int MinY, int MaxX, int MaxY, int Area, ColorKind Kind)
     {
         public Rectangle Bounds => Rectangle.FromLTRB(MinX, MinY, MaxX + 1, MaxY + 1);
 
@@ -290,17 +411,30 @@ internal sealed class ColorRectangleDetector : IDetector
                 Math.Min(MinY, y),
                 Math.Max(MaxX, x),
                 Math.Max(MaxY, y),
-                Area + 1);
+                Area + 1,
+                Kind);
         }
 
-        public ComponentBox Merge(ComponentBox other)
+        public ComponentBox MergeSameKind(ComponentBox other)
         {
             return new ComponentBox(
                 Math.Min(MinX, other.MinX),
                 Math.Min(MinY, other.MinY),
                 Math.Max(MaxX, other.MaxX),
                 Math.Max(MaxY, other.MaxY),
-                Area + other.Area);
+                Area + other.Area,
+                Kind);
+        }
+
+        public ComponentBox MergeAsPair(ComponentBox other)
+        {
+            return new ComponentBox(
+                Math.Min(MinX, other.MinX),
+                Math.Min(MinY, other.MinY),
+                Math.Max(MaxX, other.MaxX),
+                Math.Max(MaxY, other.MaxY),
+                Area + other.Area,
+                ColorKind.Pair);
         }
     }
 }

@@ -82,6 +82,7 @@
             this.pictureBoxPreview = new System.Windows.Forms.PictureBox();
             this.txtDiagnostics = new System.Windows.Forms.TextBox();
             this.btnPickScreenColor = new System.Windows.Forms.Button();
+            this.btnPickSecondaryScreenColor = new System.Windows.Forms.Button();
             this.txtPickedColor = new System.Windows.Forms.TextBox();
             ((System.ComponentModel.ISupportInitialize)(this.numScoreThreshold)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numRoiSize)).BeginInit();
@@ -262,16 +263,16 @@
             this.lblAimHeightPercent.AutoSize = true;
             this.lblAimHeightPercent.Location = new System.Drawing.Point(12, 110);
             this.lblAimHeightPercent.Name = "lblAimHeightPercent";
-            this.lblAimHeightPercent.Size = new System.Drawing.Size(95, 15);
+            this.lblAimHeightPercent.Size = new System.Drawing.Size(119, 15);
             this.lblAimHeightPercent.TabIndex = 9;
-            this.lblAimHeightPercent.Text = "瞄准点高度(%)";
-            this.toolTipDescriptions.SetToolTip(this.lblAimHeightPercent, "在检测框内部选择瞄准点的高度比例。较小更偏头部，较大更偏胸口。");
+            this.lblAimHeightPercent.Text = "框下方偏移(px)";
+            this.toolTipDescriptions.SetToolTip(this.lblAimHeightPercent, "瞄准点位于检测框下方，数值表示从检测框底部继续向下偏移多少像素。0 表示检测框底边中点。");
             // 
             // numAimHeightPercent
             // 
             this.numAimHeightPercent.Location = new System.Drawing.Point(113, 108);
-            this.numAimHeightPercent.Minimum = new decimal(new int[] {
-            1,
+            this.numAimHeightPercent.Maximum = new decimal(new int[] {
+            300,
             0,
             0,
             0});
@@ -283,7 +284,7 @@
             0,
             0,
             0});
-            this.toolTipDescriptions.SetToolTip(this.numAimHeightPercent, "建议 15~35。数值越小越靠上。");
+            this.toolTipDescriptions.SetToolTip(this.numAimHeightPercent, "单位像素，表示从检测框底部向下的瞄准点偏移。数值越大，瞄准点越低。");
             // 
             // lblAimDeadzone
             // 
@@ -763,21 +764,32 @@
             // 
             this.btnPickScreenColor.Location = new System.Drawing.Point(190, 222);
             this.btnPickScreenColor.Name = "btnPickScreenColor";
-            this.btnPickScreenColor.Size = new System.Drawing.Size(100, 23);
+            this.btnPickScreenColor.Size = new System.Drawing.Size(86, 23);
             this.btnPickScreenColor.TabIndex = 45;
-            this.btnPickScreenColor.Text = "延迟取鼠标色";
-            this.toolTipDescriptions.SetToolTip(this.btnPickScreenColor, "点击后会等待 1.5 秒再读取当前鼠标所在屏幕像素。点击按钮后立刻把鼠标移动到目标颜色上，避免取到按钮本身颜色。");
+            this.btnPickScreenColor.Text = "取主色";
+            this.toolTipDescriptions.SetToolTip(this.btnPickScreenColor, "点击后会等待 1.5 秒再读取当前鼠标所在屏幕像素，作为主色。主色可以单独构成横向矩形，也可以与副色水平相邻构成一个检测框。");
             this.btnPickScreenColor.UseVisualStyleBackColor = true;
             this.btnPickScreenColor.Click += new System.EventHandler(this.btnPickScreenColor_Click);
             // 
+            // btnPickSecondaryScreenColor
+            // 
+            this.btnPickSecondaryScreenColor.Location = new System.Drawing.Point(282, 222);
+            this.btnPickSecondaryScreenColor.Name = "btnPickSecondaryScreenColor";
+            this.btnPickSecondaryScreenColor.Size = new System.Drawing.Size(86, 23);
+            this.btnPickSecondaryScreenColor.TabIndex = 47;
+            this.btnPickSecondaryScreenColor.Text = "取副色";
+            this.toolTipDescriptions.SetToolTip(this.btnPickSecondaryScreenColor, "点击后会等待 1.5 秒再读取当前鼠标所在屏幕像素，作为副色。用于识别主色+副色水平挨在一起的复合矩形。");
+            this.btnPickSecondaryScreenColor.UseVisualStyleBackColor = true;
+            this.btnPickSecondaryScreenColor.Click += new System.EventHandler(this.btnPickSecondaryScreenColor_Click);
+            // 
             // txtPickedColor
             // 
-            this.txtPickedColor.Location = new System.Drawing.Point(296, 222);
+            this.txtPickedColor.Location = new System.Drawing.Point(374, 222);
             this.txtPickedColor.Name = "txtPickedColor";
             this.txtPickedColor.ReadOnly = true;
-            this.txtPickedColor.Size = new System.Drawing.Size(492, 23);
+            this.txtPickedColor.Size = new System.Drawing.Size(414, 23);
             this.txtPickedColor.TabIndex = 46;
-            this.toolTipDescriptions.SetToolTip(this.txtPickedColor, "最近一次取到的颜色。HSV 中 H 为 0~360，S/V 为 0~255，和颜色检测代码中的阈值单位一致。");
+            this.toolTipDescriptions.SetToolTip(this.txtPickedColor, "最近一次取到的主色或副色。HSV 中 H 为 0~360，S/V 为 0~255，和颜色检测代码中的阈值单位一致。");
             // 
             // lblParameterHint
             // 
@@ -858,6 +870,7 @@
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(800, 808);
             Controls.Add(this.txtPickedColor);
+            Controls.Add(this.btnPickSecondaryScreenColor);
             Controls.Add(this.btnPickScreenColor);
             Controls.Add(this.txtDiagnostics);
             Controls.Add(this.pictureBoxPreview);
@@ -988,6 +1001,7 @@
         private System.Windows.Forms.PictureBox pictureBoxPreview;
         private System.Windows.Forms.TextBox txtDiagnostics;
         private System.Windows.Forms.Button btnPickScreenColor;
+        private System.Windows.Forms.Button btnPickSecondaryScreenColor;
         private System.Windows.Forms.TextBox txtPickedColor;
         private System.Windows.Forms.ToolTip toolTipDescriptions;
 
