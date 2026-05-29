@@ -19,6 +19,7 @@ internal sealed class ColorRectangleDetector : IDetector
     private const int StableDetectionHoldMs = 140;
     private const float StableDetectionMinScore = 0.85f;
     private const float PartialDetectionAreaRatio = 0.82f;
+    private const float DetectionBoxWidthWindowDivisor = 12.8f;
 
     private readonly float scoreThreshold;
     private ColorDetectionOptions primaryColorOptions;
@@ -83,7 +84,7 @@ internal sealed class ColorRectangleDetector : IDetector
                     continue;
                 }
 
-                DetectionResult? pairDetection = CreateDetection(primaryComponent.MergeAsPair(secondaryComponent), region.Location, "ColorPair");
+                DetectionResult? pairDetection = CreateDetection(primaryComponent.MergeAsPair(secondaryComponent), region.Location, sourceWidth, "ColorPair");
                 if (pairDetection is not null)
                 {
                     detections.Add(pairDetection);
@@ -102,7 +103,7 @@ internal sealed class ColorRectangleDetector : IDetector
                 continue;
             }
 
-            DetectionResult? detection = CreateDetection(component, region.Location, "ColorRect");
+            DetectionResult? detection = CreateDetection(component, region.Location, sourceWidth, "ColorRect");
             if (detection is not null)
             {
                 detections.Add(detection);
@@ -390,7 +391,7 @@ internal sealed class ColorRectangleDetector : IDetector
         return fillRatio >= MinFillRatio;
     }
 
-    private DetectionResult? CreateDetection(ComponentBox component, Point sourceOffset, string label)
+    private DetectionResult? CreateDetection(ComponentBox component, Point sourceOffset, int sourceWidth, string label)
     {
         Rectangle bounds = component.Bounds;
         if (bounds.Width < MinBoxWidth || bounds.Height < MinBoxHeight || bounds.Width <= bounds.Height)
@@ -417,8 +418,20 @@ internal sealed class ColorRectangleDetector : IDetector
             return null;
         }
 
-        RectangleF box = new(bounds.X + sourceOffset.X, bounds.Y + sourceOffset.Y, bounds.Width, bounds.Height);
+        RectangleF box = CreateWindowScaledDetectionBox(bounds, sourceOffset, sourceWidth);
         return new DetectionResult(box, score, 0, label);
+    }
+
+    private static RectangleF CreateWindowScaledDetectionBox(Rectangle bounds, Point sourceOffset, int sourceWidth)
+    {
+        float boxX = bounds.X + sourceOffset.X;
+        float targetWidth = Math.Max(bounds.Width, sourceWidth / DetectionBoxWidthWindowDivisor);
+        float maxWidth = Math.Max(bounds.Width, sourceWidth - boxX);
+        return new RectangleF(
+            boxX,
+            bounds.Y + sourceOffset.Y,
+            Math.Min(targetWidth, maxWidth),
+            bounds.Height);
     }
 
     private static IReadOnlyList<DetectionResult> SuppressDuplicateDetections(List<DetectionResult> detections)
@@ -445,6 +458,18 @@ internal sealed class ColorRectangleDetector : IDetector
     private IReadOnlyList<DetectionResult> StabilizePartialDetections(IReadOnlyList<DetectionResult> detections)
     {
         long now = Environment.TickCount64;
+        if (detections.Count == 0)
+        {
+            if (stableDetections.Count > 0 && now - stableDetectionsTick <= StableDetectionHoldMs)
+            {
+                return stableDetections;
+            }
+
+            stableDetections = Array.Empty<DetectionResult>();
+            stableDetectionsTick = now;
+            return stableDetections;
+        }
+
         if (stableDetections.Count == 0 || now - stableDetectionsTick > StableDetectionHoldMs)
         {
             stableDetections = detections.ToArray();
