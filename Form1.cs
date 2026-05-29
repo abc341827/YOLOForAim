@@ -40,9 +40,6 @@ namespace YOLOForAim
         private const float AimSameTargetOverlapThreshold = 0.12f;
         private const float StableTargetIouThreshold = 0.35f;
         private const float AimLargePullDistancePixels = 72f;
-        private const float ConsumedAimTargetIouThreshold = 0.72f;
-        private const float ConsumedAimTargetCenterTolerancePixels = 14f;
-        private const int ConsumedAimTargetMissingGraceMs = 0;
         private const int AimReacquireAfterLargePullFrames = 2;
         private const int AimReacquireAfterLargePullMs = 90;
         private const float OverlayTrackMaxSpeedPixelsPerSecond = 900f;
@@ -114,7 +111,6 @@ namespace YOLOForAim
         private bool hasAppliedInitialLockPull;
         private long stableTargetSizeHoldUntilTick;
         private long pendingTargetSwitchTick;
-        private readonly List<ConsumedAimTarget> consumedAimTargets = new();
         private int suppressOverlayFrameVersion = -1;
         private int suspendAimUntilFrameVersion = -1;
         private long suspendAimUntilTick;
@@ -1004,7 +1000,6 @@ namespace YOLOForAim
 
             if (detections.Count == 0)
             {
-                PruneConsumedAimTargets(detections, now);
                 missedTargetFrames++;
                 if (missedTargetFrames >= currentAimMaxMissedFrames)
                 {
@@ -1013,102 +1008,46 @@ namespace YOLOForAim
                 return;
             }
 
-            PointF? previousLockedTargetScreenPoint = lockedTargetScreenPoint;
             PointF aimReferencePoint = GetAimReferencePoint(captureBounds);
-            PruneConsumedAimTargets(detections, now);
             TargetCandidate? nearestDetection = SelectTargetCandidate(detections, captureBounds, aimReferencePoint);
-
             if (nearestDetection is null)
             {
                 return;
             }
 
-            float distanceFromLockedTarget = MathF.Sqrt((float)nearestDetection.DistanceSquared);
-            if (lockedTargetScreenPoint is not null && distanceFromLockedTarget > currentAimLockSwitchDistancePixels)
-            {
-                if (!IsLikelySameLockedTarget(nearestDetection.Detection, captureBounds))
-                {
-                    if (pendingTargetSwitchTick <= 0)
-                    {
-                        pendingTargetSwitchTick = now;
-                        return;
-                    }
-
-                    if ((now - pendingTargetSwitchTick) < AimTargetSwitchHoldMs)
-                    {
-                        return;
-                    }
-                }
-            }
-
+            DetectionResult currentDetection = nearestDetection.Detection;
+            PointF targetPoint = GetAimPoint(captureBounds, currentDetection);
+            lockedTargetScreenPoint = targetPoint;
+            smoothedTargetScreenPoint = targetPoint;
+            stabilizedLockedDetection = currentDetection;
+            stabilizedLockedDetectionFrames = 1;
+            stableTargetSizeHoldUntilTick = now;
+            missedTargetFrames = 0;
             pendingTargetSwitchTick = 0;
 
-            bool resetHeightTracking = previousLockedTargetScreenPoint is null ||
-                smoothedTargetScreenPoint is null ||
-                GetDistanceSquared(previousLockedTargetScreenPoint.Value, nearestDetection.TargetPoint) >
-                (currentAimLockSwitchDistancePixels * currentAimLockSwitchDistancePixels);
-            DetectionResult stabilizedDetection = GetStabilizedDetection(nearestDetection.Detection, captureBounds, resetHeightTracking);
-            float effectiveAimHeight = GetEffectiveAimHeight(stabilizedDetection, resetHeightTracking);
-            PointF stabilizedTargetPoint = GetAimPoint(captureBounds, stabilizedDetection, effectiveAimHeight);
-
-            lockedTargetScreenPoint = stabilizedTargetPoint;
-            missedTargetFrames = 0;
-            if (resetHeightTracking)
-            {
-                hasAppliedInitialLockPull = false;
-            }
-
-            if (resetHeightTracking)
-            {
-                smoothedTargetScreenPoint = stabilizedTargetPoint;
-            }
-            else
-            {
-                smoothedTargetScreenPoint = LerpPoint(smoothedTargetScreenPoint.Value, stabilizedTargetPoint, currentAimTargetTrackingBlend);
-            }
-
-            PointF targetPointForMove = stabilizedTargetPoint;
-            float rawMoveX = targetPointForMove.X - aimReferencePoint.X;
-            float rawMoveY = targetPointForMove.Y - aimReferencePoint.Y;
+            float rawMoveX = targetPoint.X - aimReferencePoint.X;
+            float rawMoveY = targetPoint.Y - aimReferencePoint.Y;
             float distanceToAimPoint = MathF.Sqrt((rawMoveX * rawMoveX) + (rawMoveY * rawMoveY));
             if (currentAimPointBelowOffsetPixels <= 0f &&
-                IsAimReferenceInsideStableBox(captureBounds, stabilizedDetection, aimReferencePoint, currentAimStopLockSquareSizePixels, currentAimStopLockTopOffsetPixels))
+                IsAimReferenceInsideStableBox(captureBounds, currentDetection, aimReferencePoint, currentAimStopLockSquareSizePixels, currentAimStopLockTopOffsetPixels))
             {
                 return;
             }
 
-            if (distanceToAimPoint <= currentAimDeadzonePixels)
+            if (distanceToAimPoint <= currentAimDeadzonePixels || !CanSendAimMove(now, processedFrameVersion))
             {
                 return;
             }
 
-            if (!CanSendAimMove(now, processedFrameVersion))
+            float moveX = rawMoveX * currentAimSmoothingFactor * currentAimSpeedMultiplier;
+            float moveY = rawMoveY * currentAimSmoothingFactor * currentAimSpeedMultiplier;
+            float smoothedDistance = MathF.Sqrt((moveX * moveX) + (moveY * moveY));
+            float currentMaxStep = currentAimMaxStepPixels * currentAimSpeedMultiplier;
+            if (smoothedDistance > currentMaxStep)
             {
-                return;
-            }
-
-            float moveX;
-            float moveY;
-            if (!hasAppliedInitialLockPull)
-            {
-                moveX = rawMoveX * currentAimSpeedMultiplier;
-                moveY = rawMoveY * currentAimSpeedMultiplier;
-            }
-            else
-            {
-                moveX = rawMoveX * currentAimSmoothingFactor * currentAimSpeedMultiplier;
-                moveY = rawMoveY * currentAimSmoothingFactor * currentAimSpeedMultiplier;
-                float distanceScale = Math.Clamp((distanceToAimPoint - currentAimDeadzonePixels) / currentAimCloseRangeSlowdownPixels, 0.2f, 1f);
-                moveX *= distanceScale;
-                moveY *= distanceScale;
-                float smoothedDistance = MathF.Sqrt((moveX * moveX) + (moveY * moveY));
-                float currentMaxStep = currentAimMaxStepPixels * currentAimSpeedMultiplier;
-                if (smoothedDistance > currentMaxStep)
-                {
-                    float scale = currentMaxStep / smoothedDistance;
-                    moveX *= scale;
-                    moveY *= scale;
-                }
+                float scale = currentMaxStep / smoothedDistance;
+                moveX *= scale;
+                moveY *= scale;
             }
 
             int finalMoveX = (int)Math.Round(moveX);
@@ -1119,21 +1058,6 @@ namespace YOLOForAim
             }
 
             SendRelativeMouseMove(finalMoveX, finalMoveY);
-            MarkAimTargetConsumed(nearestDetection.Detection, now);
-            bool shouldClearCurrentLock = distanceToAimPoint >= AimLargePullDistancePixels;
-            if (shouldClearCurrentLock)
-            {
-                suppressOverlayFrameVersion = processedFrameVersion + AimReacquireAfterLargePullFrames;
-                suspendAimUntilFrameVersion = processedFrameVersion + AimReacquireAfterLargePullFrames;
-                suspendAimUntilTick = now + AimReacquireAfterLargePullMs;
-                ClearOverlayState();
-                ResetAimTrackingState();
-            }
-            else
-            {
-                hasAppliedInitialLockPull = true;
-            }
-
             lastAimMoveTick = now;
             lastAimMoveFrameVersion = processedFrameVersion;
         }
@@ -1147,7 +1071,6 @@ namespace YOLOForAim
             lastAimMoveFrameVersion = -1;
             lastPendingCompensationFrameVersion = -1;
             pendingAimCompensation = PointF.Empty;
-            consumedAimTargets.Clear();
             stableTargetSizeHoldUntilTick = 0;
             suppressOverlayFrameVersion = -1;
             suspendAimUntilFrameVersion = -1;
@@ -1269,21 +1192,8 @@ namespace YOLOForAim
 
         private bool CanSendAimMove(long now, int processedFrameVersion)
         {
-            bool isTrackingPhase = hasAppliedInitialLockPull && lockedTargetScreenPoint is not null;
-            int effectiveMoveCooldownMs = isTrackingPhase
-                ? Math.Max(1, currentAimMoveCooldownMs / 2)
-                : currentAimMoveCooldownMs;
-            int effectiveFeedbackFrameDelay = isTrackingPhase
-                ? Math.Max(0, currentAimFeedbackFrameDelay - 1)
-                : currentAimFeedbackFrameDelay;
-
-            if (lastAimMoveTick > 0 && (now - lastAimMoveTick) < effectiveMoveCooldownMs)
-            {
-                return false;
-            }
-
-            return lastAimMoveFrameVersion < 0 ||
-                (processedFrameVersion - lastAimMoveFrameVersion) >= effectiveFeedbackFrameDelay;
+            _ = now;
+            return lastAimMoveFrameVersion != processedFrameVersion;
         }
 
         private TargetCandidate? SelectTargetCandidate(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, PointF referencePoint)
@@ -1314,11 +1224,6 @@ namespace YOLOForAim
 
             foreach (DetectionResult detection in detections)
             {
-                if (IsAimTargetConsumed(detection))
-                {
-                    continue;
-                }
-
                 RectangleF detectionBounds = GetExpandedDetectionBounds(captureBounds, detection, padding);
                 if (!detectionBounds.Contains(referencePoint))
                 {
@@ -1343,11 +1248,6 @@ namespace YOLOForAim
 
             foreach (DetectionResult detection in detections)
             {
-                if (IsAimTargetConsumed(detection))
-                {
-                    continue;
-                }
-
                 PointF targetPoint = GetAimPoint(captureBounds, detection);
                 double distanceSquared = GetDistanceSquared(referencePoint, targetPoint);
                 if (distanceSquared > maxDistanceSquared)
@@ -1362,80 +1262,6 @@ namespace YOLOForAim
             }
 
             return bestCandidate;
-        }
-
-        private void MarkAimTargetConsumed(DetectionResult detection, long now)
-        {
-            for (int index = 0; index < consumedAimTargets.Count; index++)
-            {
-                if (!IsSameConsumedAimTarget(consumedAimTargets[index], detection))
-                {
-                    continue;
-                }
-
-                consumedAimTargets[index] = consumedAimTargets[index] with
-                {
-                    Box = detection.Box,
-                    LastSeenTick = now
-                };
-                return;
-            }
-
-            consumedAimTargets.Add(new ConsumedAimTarget(detection.ClassId, detection.Box, now));
-        }
-
-        private void PruneConsumedAimTargets(IReadOnlyList<DetectionResult> detections, long now)
-        {
-            for (int consumedIndex = consumedAimTargets.Count - 1; consumedIndex >= 0; consumedIndex--)
-            {
-                ConsumedAimTarget consumedTarget = consumedAimTargets[consumedIndex];
-                DetectionResult? matchingDetection = detections.FirstOrDefault(detection => IsSameConsumedAimTarget(consumedTarget, detection));
-                if (matchingDetection is not null)
-                {
-                    consumedAimTargets[consumedIndex] = consumedTarget with
-                    {
-                        Box = matchingDetection.Box,
-                        LastSeenTick = now
-                    };
-                    continue;
-                }
-
-                if ((now - consumedTarget.LastSeenTick) > ConsumedAimTargetMissingGraceMs)
-                {
-                    consumedAimTargets.RemoveAt(consumedIndex);
-                }
-            }
-        }
-
-        private bool IsAimTargetConsumed(DetectionResult detection)
-        {
-            return consumedAimTargets.Any(consumedTarget => IsSameConsumedAimTarget(consumedTarget, detection));
-        }
-
-        private static bool IsSameConsumedAimTarget(ConsumedAimTarget consumedTarget, DetectionResult detection)
-        {
-            if (consumedTarget.ClassId != detection.ClassId)
-            {
-                return false;
-            }
-
-            if (CalculateIou(consumedTarget.Box, detection.Box) >= ConsumedAimTargetIouThreshold)
-            {
-                return true;
-            }
-
-            PointF consumedCenter = GetBoxCenter(consumedTarget.Box);
-            PointF detectionCenter = GetBoxCenter(detection.Box);
-            if (GetDistanceSquared(consumedCenter, detectionCenter) >
-                (ConsumedAimTargetCenterTolerancePixels * ConsumedAimTargetCenterTolerancePixels))
-            {
-                return false;
-            }
-
-            float widthDelta = Math.Abs(consumedTarget.Box.Width - detection.Box.Width);
-            float heightDelta = Math.Abs(consumedTarget.Box.Height - detection.Box.Height);
-            return widthDelta <= Math.Max(4f, consumedTarget.Box.Width * 0.2f) &&
-                heightDelta <= Math.Max(4f, consumedTarget.Box.Height * 0.2f);
         }
 
         private float GetCurrentAimAcquireDistancePixels()
@@ -1865,7 +1691,6 @@ namespace YOLOForAim
             ColorDetectionOptions? SecondaryColorDetection = null);
 
         private sealed record TargetCandidate(DetectionResult Detection, PointF TargetPoint, double DistanceSquared);
-        private sealed record ConsumedAimTarget(int ClassId, RectangleF Box, long LastSeenTick);
         #endregion
     }
 
