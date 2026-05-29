@@ -633,6 +633,12 @@ namespace YOLOForAim
             string pickedColorText = $"{(isSecondaryColor ? "副色" : "主色")} HEX #{color.R:X2}{color.G:X2}{color.B:X2} | RGB({color.R}, {color.G}, {color.B}) | HSV(H={hue:F1}, S={saturation}, V={value}) | 已应用到颜色检测";
             txtPickedColor.Text = pickedColorText;
             lblStatus.Text = $"已取色: {pickedColorText}";
+            SaveUiSettings();
+        }
+
+        private void UpdatePickedColorText(string prefix)
+        {
+            txtPickedColor.Text = $"{prefix}: 主色 HSV(H={currentPrimaryColorDetectionOptions.Hue:F1}, S={currentPrimaryColorDetectionOptions.Saturation}, V={currentPrimaryColorDetectionOptions.Value}) | 副色 HSV(H={currentSecondaryColorDetectionOptions.Hue:F1}, S={currentSecondaryColorDetectionOptions.Saturation}, V={currentSecondaryColorDetectionOptions.Value})";
         }
 
         private void UpdateInferenceBackendUi()
@@ -1692,6 +1698,10 @@ namespace YOLOForAim
                 SetNumericValue(numAimTrackedAcquireDistance, settings.AimTrackedAcquireDistancePixels);
                 SetNumericValue(numAimStopInsideBoxArea, settings.AimStopLockSquareSizePixels);
                 SetNumericValue(numAimStopBoxTopOffset, settings.AimStopLockTopOffsetPixels);
+                currentPrimaryColorDetectionOptions = settings.PrimaryColorDetection ?? ColorDetectionOptions.Default;
+                currentSecondaryColorDetectionOptions = settings.SecondaryColorDetection ?? ColorDetectionOptions.DefaultSecondary;
+                UpdatePickedColorText("已加载颜色检测色值");
+                UpdateInferenceBackendUi();
             }
             catch
             {
@@ -1725,7 +1735,9 @@ namespace YOLOForAim
                     (int)numAimTrackedAcquireDistance.Value,
                     (int)numAimStopInsideBoxArea.Value,
                     (int)numAimStopBoxTopOffset.Value,
-                    GetSelectedBackend().ToString());
+                    GetSelectedBackend().ToString(),
+                    currentPrimaryColorDetectionOptions,
+                    currentSecondaryColorDetectionOptions);
 
                 string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(UiSettingsFilePath, json);
@@ -1848,7 +1860,9 @@ namespace YOLOForAim
             int AimTrackedAcquireDistancePixels = DefaultAimTrackedAcquireDistancePixels,
             int AimStopLockSquareSizePixels = DefaultAimStopLockSquareSizePixels,
             int AimStopLockTopOffsetPixels = DefaultAimStopLockTopOffsetPixels,
-            string InferenceBackend = nameof(DetectorBackend.OnnxRuntimeDirectMl));
+            string InferenceBackend = nameof(DetectorBackend.OnnxRuntimeDirectMl),
+            ColorDetectionOptions? PrimaryColorDetection = null,
+            ColorDetectionOptions? SecondaryColorDetection = null);
 
         private sealed record TargetCandidate(DetectionResult Detection, PointF TargetPoint, double DistanceSquared);
         private sealed record ConsumedAimTarget(int ClassId, RectangleF Box, long LastSeenTick);
