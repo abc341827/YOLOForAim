@@ -53,6 +53,7 @@ internal sealed class ColorRectangleDetector : IDetector
 
         var detections = new List<DetectionResult>();
         var pairedPrimaryIndexes = new HashSet<int>();
+        var pairedSecondaryIndexes = new HashSet<int>();
 
         for (int primaryIndex = 0; primaryIndex < mergedComponents.Count; primaryIndex++)
         {
@@ -65,7 +66,9 @@ internal sealed class ColorRectangleDetector : IDetector
             for (int secondaryIndex = 0; secondaryIndex < mergedComponents.Count; secondaryIndex++)
             {
                 ComponentBox secondaryComponent = mergedComponents[secondaryIndex];
-                if (secondaryComponent.Kind != ColorKind.Secondary || !CanCreateHorizontalPair(primaryComponent, secondaryComponent))
+                if (pairedSecondaryIndexes.Contains(secondaryIndex) ||
+                    secondaryComponent.Kind != ColorKind.Secondary ||
+                    !CanCreateHorizontalPair(primaryComponent, secondaryComponent))
                 {
                     continue;
                 }
@@ -75,6 +78,7 @@ internal sealed class ColorRectangleDetector : IDetector
                 {
                     detections.Add(pairDetection);
                     pairedPrimaryIndexes.Add(primaryIndex);
+                    pairedSecondaryIndexes.Add(secondaryIndex);
                     break;
                 }
             }

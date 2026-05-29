@@ -758,7 +758,7 @@ namespace YOLOForAim
                 latestOverlayLockedDetection = stabilizedLockedDetection;
                 latestOverlayAimPoint = stabilizedLockedDetection is null
                     ? null
-                    : GetStopLockTargetPoint(captureBounds, stabilizedLockedDetection);
+                    : GetAimPoint(captureBounds, stabilizedLockedDetection);
                 latestOverlayCursorPoint = Cursor.Position;
             }
 
@@ -1061,11 +1061,12 @@ namespace YOLOForAim
                 smoothedTargetScreenPoint = LerpPoint(smoothedTargetScreenPoint.Value, stabilizedTargetPoint, currentAimTargetTrackingBlend);
             }
 
-            PointF targetPointForMove = GetStopLockTargetPoint(captureBounds, stabilizedDetection);
+            PointF targetPointForMove = stabilizedTargetPoint;
             float rawMoveX = targetPointForMove.X - aimReferencePoint.X;
             float rawMoveY = targetPointForMove.Y - aimReferencePoint.Y;
             float distanceToAimPoint = MathF.Sqrt((rawMoveX * rawMoveX) + (rawMoveY * rawMoveY));
-            if (IsAimReferenceInsideStableBox(captureBounds, stabilizedDetection, aimReferencePoint, currentAimStopLockSquareSizePixels, currentAimStopLockTopOffsetPixels))
+            if (currentAimPointBelowOffsetPixels <= 0f &&
+                IsAimReferenceInsideStableBox(captureBounds, stabilizedDetection, aimReferencePoint, currentAimStopLockSquareSizePixels, currentAimStopLockTopOffsetPixels))
             {
                 return;
             }
