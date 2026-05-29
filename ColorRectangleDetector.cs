@@ -12,6 +12,7 @@ internal sealed class ColorRectangleDetector : IDetector
     private const float MinFillRatio = 0.5f;
     private const float MinVerticalOverlapRatio = 0.65f;
     private const int MergeGapPixels = 3;
+    private const int HorizontalCloseGapPixels = 6;
 
     private readonly float scoreThreshold;
     private ColorDetectionOptions primaryColorOptions;
@@ -48,6 +49,7 @@ internal sealed class ColorRectangleDetector : IDetector
         ColorDetectionOptions primary = primaryColorOptions;
         ColorDetectionOptions secondary = secondaryColorOptions;
         byte[] mask = BuildColorMask(sourcePixels, sourceStride, region, primary, secondary);
+        CloseHorizontalMaskGaps(mask, regionWidth, regionHeight, HorizontalCloseGapPixels);
         List<ComponentBox> components = FindComponents(mask, regionWidth, regionHeight);
         List<ComponentBox> mergedComponents = MergeNearbyComponents(components);
 
@@ -140,6 +142,54 @@ internal sealed class ColorRectangleDetector : IDetector
         }
 
         return mask;
+    }
+
+    private static void CloseHorizontalMaskGaps(byte[] mask, int width, int height, int maxGapPixels)
+    {
+        if (maxGapPixels <= 0)
+        {
+            return;
+        }
+
+        for (int y = 0; y < height; y++)
+        {
+            int rowOffset = y * width;
+            int lastPrimaryX = -1;
+            int lastSecondaryX = -1;
+            for (int x = 0; x < width; x++)
+            {
+                int index = rowOffset + x;
+                ColorKind kind = (ColorKind)mask[index];
+                if (kind == ColorKind.Primary)
+                {
+                    FillShortGap(mask, rowOffset, lastPrimaryX, x, maxGapPixels, ColorKind.Primary);
+                    lastPrimaryX = x;
+                }
+                else if (kind == ColorKind.Secondary)
+                {
+                    FillShortGap(mask, rowOffset, lastSecondaryX, x, maxGapPixels, ColorKind.Secondary);
+                    lastSecondaryX = x;
+                }
+            }
+        }
+    }
+
+    private static void FillShortGap(byte[] mask, int rowOffset, int previousX, int currentX, int maxGapPixels, ColorKind kind)
+    {
+        int gapPixels = currentX - previousX - 1;
+        if (previousX < 0 || gapPixels <= 0 || gapPixels > maxGapPixels)
+        {
+            return;
+        }
+
+        for (int x = previousX + 1; x < currentX; x++)
+        {
+            int index = rowOffset + x;
+            if (mask[index] == 0)
+            {
+                mask[index] = (byte)kind;
+            }
+        }
     }
 
     private static bool IsTargetColorPixel(byte r, byte g, byte b, ColorDetectionOptions options)
@@ -238,6 +288,10 @@ internal sealed class ColorRectangleDetector : IDetector
             TryPush(mask, width, height, x + 1, y, kind, stack, ref stackCount);
             TryPush(mask, width, height, x, y - 1, kind, stack, ref stackCount);
             TryPush(mask, width, height, x, y + 1, kind, stack, ref stackCount);
+            TryPush(mask, width, height, x - 1, y - 1, kind, stack, ref stackCount);
+            TryPush(mask, width, height, x + 1, y - 1, kind, stack, ref stackCount);
+            TryPush(mask, width, height, x - 1, y + 1, kind, stack, ref stackCount);
+            TryPush(mask, width, height, x + 1, y + 1, kind, stack, ref stackCount);
         }
 
         return component;

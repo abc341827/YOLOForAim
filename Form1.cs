@@ -151,6 +151,18 @@ namespace YOLOForAim
             numAimTrackedAcquireDistance.ValueChanged += AimRuntimeSetting_ValueChanged;
             numAimStopInsideBoxArea.ValueChanged += AimRuntimeSetting_ValueChanged;
             numAimStopBoxTopOffset.ValueChanged += AimRuntimeSetting_ValueChanged;
+            numAimHeightPercent.ValueChanged += AimRuntimeSetting_ValueChanged;
+            numAimDeadzone.ValueChanged += AimRuntimeSetting_ValueChanged;
+            numAimSmoothing.ValueChanged += AimRuntimeSetting_ValueChanged;
+            numAimSpeedMultiplier.ValueChanged += AimRuntimeSetting_ValueChanged;
+            numAimMaxStep.ValueChanged += AimRuntimeSetting_ValueChanged;
+            numAimSwitchDistance.ValueChanged += AimRuntimeSetting_ValueChanged;
+            numAimMaxMissedFrames.ValueChanged += AimRuntimeSetting_ValueChanged;
+            numAimFireGracePeriod.ValueChanged += AimRuntimeSetting_ValueChanged;
+            numAimTrackingBlend.ValueChanged += AimRuntimeSetting_ValueChanged;
+            numAimCloseRangeSlowdown.ValueChanged += AimRuntimeSetting_ValueChanged;
+            numAimMoveCooldown.ValueChanged += AimRuntimeSetting_ValueChanged;
+            numAimFeedbackFrameDelay.ValueChanged += AimRuntimeSetting_ValueChanged;
             UpdateInferenceBackendUi();
             LoadUiSettings();
             UpdateLiveAimRuntimeSettings();
@@ -544,6 +556,18 @@ namespace YOLOForAim
 
         private void UpdateLiveAimRuntimeSettings()
         {
+            currentAimPointBelowOffsetPixels = (float)numAimHeightPercent.Value;
+            currentAimDeadzonePixels = (float)numAimDeadzone.Value;
+            currentAimSmoothingFactor = (float)numAimSmoothing.Value / 100f;
+            currentAimSpeedMultiplier = (float)numAimSpeedMultiplier.Value / 100f;
+            currentAimMaxStepPixels = (float)numAimMaxStep.Value;
+            currentAimLockSwitchDistancePixels = (float)numAimSwitchDistance.Value;
+            currentAimMaxMissedFrames = Math.Max(1, (int)numAimMaxMissedFrames.Value);
+            currentAimAssistFireGracePeriodMs = (int)numAimFireGracePeriod.Value;
+            currentAimTargetTrackingBlend = (float)numAimTrackingBlend.Value / 100f;
+            currentAimCloseRangeSlowdownPixels = (float)numAimCloseRangeSlowdown.Value;
+            currentAimMoveCooldownMs = (int)numAimMoveCooldown.Value;
+            currentAimFeedbackFrameDelay = Math.Max(0, (int)numAimFeedbackFrameDelay.Value);
             currentAimInitialAcquireDistancePixels = (float)numAimInitialAcquireDistance.Value;
             currentAimTrackedAcquireDistancePixels = (float)numAimTrackedAcquireDistance.Value;
             currentAimStopLockSquareSizePixels = (float)numAimStopInsideBoxArea.Value;
@@ -829,6 +853,8 @@ namespace YOLOForAim
                 ? Math.Max(0.001d, (now - overlayTracksTick) / 1000d)
                 : 1d / Math.Max(1d, currentInferenceFps > 1d ? currentInferenceFps : 120d);
             float maxMatchDistance = Math.Max(OverlayTrackMinMatchDistancePixels, (float)(OverlayTrackMaxSpeedPixelsPerSecond * deltaSeconds));
+            float positionBlend = GetFrameRateAdjustedBlend(OverlayTrackPositionBlend, deltaSeconds);
+            float sizeBlend = GetFrameRateAdjustedBlend(OverlayTrackSizeBlend, deltaSeconds);
             DetectionResult[] trackedDetections = new DetectionResult[detections.Count];
             var matchedTrackIndexes = new HashSet<int>();
 
@@ -868,7 +894,7 @@ namespace YOLOForAim
                 }
 
                 DetectionResult trackedDetection = matchedTrackIndex >= 0
-                    ? UpdateTrackedOverlayDetection(overlayTracks[matchedTrackIndex].Detection, detection)
+                    ? UpdateTrackedOverlayDetection(overlayTracks[matchedTrackIndex].Detection, detection, positionBlend, sizeBlend)
                     : detection;
 
                 if (matchedTrackIndex >= 0)
@@ -884,12 +910,15 @@ namespace YOLOForAim
             return trackedDetections;
         }
 
-        private static DetectionResult UpdateTrackedOverlayDetection(DetectionResult previousDetection, DetectionResult currentDetection)
+        private static DetectionResult UpdateTrackedOverlayDetection(DetectionResult previousDetection, DetectionResult currentDetection, float positionBlend, float sizeBlend)
         {
             PointF previousCenter = GetBoxCenter(previousDetection.Box);
             PointF currentCenter = GetBoxCenter(currentDetection.Box);
-            PointF trackedCenter = LerpPoint(previousCenter, currentCenter, OverlayTrackPositionBlend);
-            SizeF trackedSize = LerpSize(previousDetection.Box.Size, currentDetection.Box.Size, OverlayTrackSizeBlend);
+            PointF trackedCenter = LerpPoint(previousCenter, currentCenter, positionBlend);
+            SizeF guardedSize = new(
+                GuardTrackedSize(previousDetection.Box.Width, currentDetection.Box.Width),
+                GuardTrackedSize(previousDetection.Box.Height, currentDetection.Box.Height));
+            SizeF trackedSize = LerpSize(previousDetection.Box.Size, guardedSize, sizeBlend);
             RectangleF trackedBox = CreateCenteredBox(trackedCenter, trackedSize);
 
             return currentDetection with
@@ -1012,24 +1041,33 @@ namespace YOLOForAim
             TargetCandidate? nearestDetection = SelectTargetCandidate(detections, captureBounds, aimReferencePoint);
             if (nearestDetection is null)
             {
+                missedTargetFrames++;
+                if (missedTargetFrames >= currentAimMaxMissedFrames)
+                {
+                    ResetAimTrackingState();
+                }
+
                 return;
             }
 
             DetectionResult currentDetection = nearestDetection.Detection;
-            PointF targetPoint = GetAimPoint(captureBounds, currentDetection);
-            lockedTargetScreenPoint = targetPoint;
-            smoothedTargetScreenPoint = targetPoint;
-            stabilizedLockedDetection = currentDetection;
-            stabilizedLockedDetectionFrames = 1;
-            stableTargetSizeHoldUntilTick = now;
+            bool resetTargetTracking = stabilizedLockedDetection is null || !IsLikelySameLockedTarget(currentDetection, captureBounds);
+            DetectionResult stableDetection = GetStabilizedDetection(currentDetection, captureBounds, resetTargetTracking);
+            PointF targetPoint = GetAimPoint(captureBounds, stableDetection);
+            lockedTargetScreenPoint = GetAimPoint(captureBounds, currentDetection);
+            smoothedTargetScreenPoint = smoothedTargetScreenPoint is null || resetTargetTracking
+                ? targetPoint
+                : LerpPoint(smoothedTargetScreenPoint.Value, targetPoint, currentAimTargetTrackingBlend);
+            targetPoint = smoothedTargetScreenPoint.Value;
             missedTargetFrames = 0;
             pendingTargetSwitchTick = 0;
+            hasAppliedInitialLockPull = true;
 
             float rawMoveX = targetPoint.X - aimReferencePoint.X;
             float rawMoveY = targetPoint.Y - aimReferencePoint.Y;
             float distanceToAimPoint = MathF.Sqrt((rawMoveX * rawMoveX) + (rawMoveY * rawMoveY));
             if (currentAimPointBelowOffsetPixels <= 0f &&
-                IsAimReferenceInsideStableBox(captureBounds, currentDetection, aimReferencePoint, currentAimStopLockSquareSizePixels, currentAimStopLockTopOffsetPixels))
+                IsAimReferenceInsideStableBox(captureBounds, stableDetection, aimReferencePoint, currentAimStopLockSquareSizePixels, currentAimStopLockTopOffsetPixels))
             {
                 return;
             }
@@ -1041,6 +1079,13 @@ namespace YOLOForAim
 
             float moveX = rawMoveX * currentAimSmoothingFactor * currentAimSpeedMultiplier;
             float moveY = rawMoveY * currentAimSmoothingFactor * currentAimSpeedMultiplier;
+            if (currentAimCloseRangeSlowdownPixels > 1f && distanceToAimPoint < currentAimCloseRangeSlowdownPixels)
+            {
+                float slowdownScale = Math.Clamp(distanceToAimPoint / currentAimCloseRangeSlowdownPixels, 0.2f, 1f);
+                moveX *= slowdownScale;
+                moveY *= slowdownScale;
+            }
+
             float smoothedDistance = MathF.Sqrt((moveX * moveX) + (moveY * moveY));
             float currentMaxStep = currentAimMaxStepPixels * currentAimSpeedMultiplier;
             if (smoothedDistance > currentMaxStep)
@@ -1127,8 +1172,40 @@ namespace YOLOForAim
         private SizeF GetStableTargetSize(DetectionResult detection, Rectangle captureBounds, long now)
         {
             _ = captureBounds;
-            _ = now;
-            return stabilizedLockedDetection?.Box.Size ?? detection.Box.Size;
+            if (stabilizedLockedDetection is null)
+            {
+                return detection.Box.Size;
+            }
+
+            SizeF previousSize = stabilizedLockedDetection.Box.Size;
+            SizeF currentSize = detection.Box.Size;
+            if (now < stableTargetSizeHoldUntilTick)
+            {
+                return previousSize;
+            }
+
+            PointF previousCenter = GetBoxCenter(stabilizedLockedDetection.Box);
+            PointF currentCenter = GetBoxCenter(detection.Box);
+            if (GetDistanceSquared(previousCenter, currentCenter) > StableTargetSizeUpdateCenterOffsetPixels * StableTargetSizeUpdateCenterOffsetPixels &&
+                CalculateIou(stabilizedLockedDetection.Box, detection.Box) < StableTargetIouThreshold)
+            {
+                return previousSize;
+            }
+
+            SizeF guardedSize = new(
+                GuardTrackedSize(previousSize.Width, currentSize.Width),
+                GuardTrackedSize(previousSize.Height, currentSize.Height));
+            return LerpSize(previousSize, guardedSize, StableTargetSizeBlend);
+        }
+
+        private static float GuardTrackedSize(float previousSize, float currentSize)
+        {
+            if (previousSize <= 0f || currentSize >= previousSize)
+            {
+                return currentSize;
+            }
+
+            return Math.Max(currentSize, previousSize * 0.92f);
         }
 
         private static bool ShouldKeepStableTarget(DetectionResult previousDetection, DetectionResult currentDetection)
@@ -1192,8 +1269,17 @@ namespace YOLOForAim
 
         private bool CanSendAimMove(long now, int processedFrameVersion)
         {
-            _ = now;
-            return lastAimMoveFrameVersion != processedFrameVersion;
+            if (lastAimMoveFrameVersion == processedFrameVersion)
+            {
+                return false;
+            }
+
+            if (lastAimMoveTick > 0 && currentAimMoveCooldownMs > 0 && now - lastAimMoveTick < currentAimMoveCooldownMs)
+            {
+                return false;
+            }
+
+            return lastAimMoveFrameVersion < 0 || processedFrameVersion - lastAimMoveFrameVersion > currentAimFeedbackFrameDelay;
         }
 
         private TargetCandidate? SelectTargetCandidate(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, PointF referencePoint)
@@ -1449,6 +1535,13 @@ namespace YOLOForAim
             return new SizeF(
                 from.Width + ((to.Width - from.Width) * amount),
                 from.Height + ((to.Height - from.Height) * amount));
+        }
+
+        private static float GetFrameRateAdjustedBlend(float baseBlendAt60Fps, double deltaSeconds)
+        {
+            float clampedBaseBlend = Math.Clamp(baseBlendAt60Fps, 0.001f, 0.999f);
+            double frameScale = Math.Max(0.001d, deltaSeconds * 60d);
+            return (float)Math.Clamp(1d - Math.Pow(1d - clampedBaseBlend, frameScale), 0.001d, 0.999d);
         }
 
         private static float LerpFloat(float from, float to, float amount)
