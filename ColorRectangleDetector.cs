@@ -4,26 +4,35 @@ namespace YOLOForAim;
 
 internal sealed class ColorRectangleDetector : IDetector
 {
-    private const int MinHue = 14;
-    private const int MaxHue = 48;
-    private const int MinSaturation = 70;
-    private const int MinValue = 120;
     private const int MinBoxWidth = 8;
     private const int MinBoxHeight = 3;
     private const int MinComponentArea = 24;
-    private const float MinAspectRatio = 1.4f;
+    private const float MinAspectRatio = 1.5f;
     private const float MaxAspectRatio = 24f;
-    private const float MinFillRatio = 0.22f;
+    private const float MinFillRatio = 0.5f;
     private const int MergeGapPixels = 3;
 
     private readonly float scoreThreshold;
+    private ColorDetectionOptions colorOptions;
 
-    public string ModelSummary { get; }
+    public string ModelSummary
+    {
+        get
+        {
+            ColorDetectionOptions options = colorOptions;
+            return $"颜色检测: 目标 HSV(H={options.Hue:F1}, S={options.Saturation}, V={options.Value})，容差 H±{options.HueTolerance:F1}, S±{options.SaturationTolerance}, V±{options.ValueTolerance}，仅横向实心矩形。";
+        }
+    }
 
     public ColorRectangleDetector(DetectorOptions detectorOptions)
     {
         scoreThreshold = detectorOptions.ScoreThreshold;
-        ModelSummary = "颜色检测: 橙黄色横向矩形，HSV H=14~48, S>=70, V>=120。";
+        colorOptions = detectorOptions.ColorDetection ?? ColorDetectionOptions.Default;
+    }
+
+    public void UpdateColorDetectionOptions(ColorDetectionOptions options)
+    {
+        colorOptions = options;
     }
 
     public DetectionRunResult Detect(byte[] sourcePixels, int sourceWidth, int sourceHeight, int sourceStride, Rectangle sourceRegion)
@@ -31,7 +40,8 @@ internal sealed class ColorRectangleDetector : IDetector
         Rectangle region = NormalizeSourceRegion(sourceRegion, sourceWidth, sourceHeight);
         int regionWidth = region.Width;
         int regionHeight = region.Height;
-        byte[] mask = BuildColorMask(sourcePixels, sourceStride, region);
+        ColorDetectionOptions currentColorOptions = colorOptions;
+        byte[] mask = BuildColorMask(sourcePixels, sourceStride, region, currentColorOptions);
         List<ComponentBox> components = FindComponents(mask, regionWidth, regionHeight);
         List<ComponentBox> mergedComponents = MergeNearbyComponents(components);
 
@@ -61,7 +71,7 @@ internal sealed class ColorRectangleDetector : IDetector
             : normalizedSourceRegion;
     }
 
-    private static byte[] BuildColorMask(byte[] pixels, int stride, Rectangle region)
+    private static byte[] BuildColorMask(byte[] pixels, int stride, Rectangle region, ColorDetectionOptions options)
     {
         byte[] mask = new byte[region.Width * region.Height];
         for (int y = 0; y < region.Height; y++)
@@ -74,7 +84,7 @@ internal sealed class ColorRectangleDetector : IDetector
                 byte b = pixels[pixelOffset];
                 byte g = pixels[pixelOffset + 1];
                 byte r = pixels[pixelOffset + 2];
-                if (IsOrangeYellowPixel(r, g, b))
+                if (IsTargetColorPixel(r, g, b, options))
                 {
                     mask[maskRowOffset + x] = 1;
                 }
@@ -84,20 +94,22 @@ internal sealed class ColorRectangleDetector : IDetector
         return mask;
     }
 
-    private static bool IsOrangeYellowPixel(byte r, byte g, byte b)
+    private static bool IsTargetColorPixel(byte r, byte g, byte b, ColorDetectionOptions options)
+    {
+        (float hue, int saturation, int value) = RgbToHsv(r, g, b);
+        return GetHueDistance(hue, options.Hue) <= options.HueTolerance &&
+            Math.Abs(saturation - options.Saturation) <= options.SaturationTolerance &&
+            Math.Abs(value - options.Value) <= options.ValueTolerance;
+    }
+
+    private static (float Hue, int Saturation, int Value) RgbToHsv(byte r, byte g, byte b)
     {
         int max = Math.Max(r, Math.Max(g, b));
         int min = Math.Min(r, Math.Min(g, b));
         int delta = max - min;
-        if (max < MinValue || delta <= 0)
+        if (delta == 0)
         {
-            return false;
-        }
-
-        int saturation = delta * 255 / max;
-        if (saturation < MinSaturation)
-        {
-            return false;
+            return (0f, 0, max);
         }
 
         float hue;
@@ -118,7 +130,14 @@ internal sealed class ColorRectangleDetector : IDetector
             hue = 60f * (((r - g) / (float)delta) + 4f);
         }
 
-        return hue >= MinHue && hue <= MaxHue;
+        int saturation = max == 0 ? 0 : delta * 255 / max;
+        return (hue, saturation, max);
+    }
+
+    private static float GetHueDistance(float hue, float targetHue)
+    {
+        float distance = Math.Abs(hue - targetHue) % 360f;
+        return distance > 180f ? 360f - distance : distance;
     }
 
     private static List<ComponentBox> FindComponents(byte[] mask, int width, int height)
@@ -228,6 +247,11 @@ internal sealed class ColorRectangleDetector : IDetector
     {
         Rectangle bounds = component.Bounds;
         if (bounds.Width < MinBoxWidth || bounds.Height < MinBoxHeight)
+        {
+            return null;
+        }
+
+        if (bounds.Width <= bounds.Height)
         {
             return null;
         }

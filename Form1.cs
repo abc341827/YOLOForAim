@@ -113,6 +113,7 @@ namespace YOLOForAim
         private int suppressOverlayFrameVersion = -1;
         private int suspendAimUntilFrameVersion = -1;
         private long suspendAimUntilTick;
+        private ColorDetectionOptions currentColorDetectionOptions = ColorDetectionOptions.Default;
 
         public Form1()
         {
@@ -210,7 +211,8 @@ namespace YOLOForAim
                     selectedBackend,
                     chkPreferGpu.Checked,
                     (float)numScoreThreshold.Value / 100f,
-                    tensorRtEnginePath);
+                    tensorRtEnginePath,
+                    currentColorDetectionOptions);
 
                 detector = selectedBackend switch
                 {
@@ -558,6 +560,23 @@ namespace YOLOForAim
             UpdateInferenceBackendUi();
         }
 
+        private void btnPickScreenColor_Click(object? sender, EventArgs e)
+        {
+            Color color = GetScreenColorAtCursor();
+            (float hue, int saturation, int value) = RgbToHsv(color.R, color.G, color.B);
+            currentColorDetectionOptions = new ColorDetectionOptions(hue, saturation, value, 10f, 55, 70);
+            if (detector is ColorRectangleDetector colorRectangleDetector)
+            {
+                colorRectangleDetector.UpdateColorDetectionOptions(currentColorDetectionOptions);
+                diagnosticsHeader = colorRectangleDetector.ModelSummary;
+                UpdateDiagnosticsText();
+            }
+
+            string pickedColorText = $"HEX #{color.R:X2}{color.G:X2}{color.B:X2} | RGB({color.R}, {color.G}, {color.B}) | HSV(H={hue:F1}, S={saturation}, V={value}) | 已应用到颜色检测";
+            txtPickedColor.Text = pickedColorText;
+            lblStatus.Text = $"已取色: {pickedColorText}";
+        }
+
         private void UpdateInferenceBackendUi()
         {
             DetectorBackend selectedBackend = GetSelectedBackend();
@@ -576,7 +595,7 @@ namespace YOLOForAim
                 lblStatus.Text = selectedBackend switch
                 {
                     DetectorBackend.TensorRtEngine => $"TensorRT Engine 待命: engine={(enginePath is null ? "(未找到)" : Path.GetFileName(enginePath))}",
-                    DetectorBackend.ColorRectangle => "颜色检测待命: 橙黄色横向矩形",
+                    DetectorBackend.ColorRectangle => $"颜色检测待命: HSV(H={currentColorDetectionOptions.Hue:F1}, S={currentColorDetectionOptions.Saturation}, V={currentColorDetectionOptions.Value}) 横向矩形",
                     _ => $"DirectML 待命: ONNX={Path.GetFileName(modelPath)}"
                 };
             }
@@ -1336,6 +1355,47 @@ namespace YOLOForAim
             _ = captureBounds;
             Point cursorPosition = Cursor.Position;
             return new PointF(cursorPosition.X, cursorPosition.Y);
+        }
+
+        private static Color GetScreenColorAtCursor()
+        {
+            Point cursorPosition = Cursor.Position;
+            using Bitmap bitmap = new(1, 1);
+            using Graphics graphics = Graphics.FromImage(bitmap);
+            graphics.CopyFromScreen(cursorPosition, Point.Empty, new Size(1, 1), CopyPixelOperation.SourceCopy);
+            return bitmap.GetPixel(0, 0);
+        }
+
+        private static (float Hue, int Saturation, int Value) RgbToHsv(byte r, byte g, byte b)
+        {
+            int max = Math.Max(r, Math.Max(g, b));
+            int min = Math.Min(r, Math.Min(g, b));
+            int delta = max - min;
+            if (delta == 0)
+            {
+                return (0f, 0, max);
+            }
+
+            float hue;
+            if (max == r)
+            {
+                hue = 60f * ((g - b) / (float)delta);
+                if (hue < 0f)
+                {
+                    hue += 360f;
+                }
+            }
+            else if (max == g)
+            {
+                hue = 60f * (((b - r) / (float)delta) + 2f);
+            }
+            else
+            {
+                hue = 60f * (((r - g) / (float)delta) + 4f);
+            }
+
+            int saturation = max == 0 ? 0 : delta * 255 / max;
+            return (hue, saturation, max);
         }
 
         private static bool IsLeftMouseButtonDown()

@@ -81,6 +81,8 @@
             this.lblStatus = new System.Windows.Forms.Label();
             this.pictureBoxPreview = new System.Windows.Forms.PictureBox();
             this.txtDiagnostics = new System.Windows.Forms.TextBox();
+            this.btnPickScreenColor = new System.Windows.Forms.Button();
+            this.txtPickedColor = new System.Windows.Forms.TextBox();
             ((System.ComponentModel.ISupportInitialize)(this.numScoreThreshold)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numRoiSize)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numPreviewInterval)).BeginInit();
@@ -757,6 +759,26 @@
             this.chkOverlayEnabled.UseVisualStyleBackColor = true;
             this.chkOverlayEnabled.CheckedChanged += new System.EventHandler(this.chkOverlayEnabled_CheckedChanged);
             // 
+            // btnPickScreenColor
+            // 
+            this.btnPickScreenColor.Location = new System.Drawing.Point(190, 222);
+            this.btnPickScreenColor.Name = "btnPickScreenColor";
+            this.btnPickScreenColor.Size = new System.Drawing.Size(100, 23);
+            this.btnPickScreenColor.TabIndex = 45;
+            this.btnPickScreenColor.Text = "取鼠标色值";
+            this.toolTipDescriptions.SetToolTip(this.btnPickScreenColor, "点击后读取当前鼠标所在屏幕像素，并显示 HEX / RGB / HSV。先把鼠标移动到目标颜色上，再点击按钮。若点击后鼠标位置变了，可使用键盘或快捷键辅助定位。");
+            this.btnPickScreenColor.UseVisualStyleBackColor = true;
+            this.btnPickScreenColor.Click += new System.EventHandler(this.btnPickScreenColor_Click);
+            // 
+            // txtPickedColor
+            // 
+            this.txtPickedColor.Location = new System.Drawing.Point(296, 222);
+            this.txtPickedColor.Name = "txtPickedColor";
+            this.txtPickedColor.ReadOnly = true;
+            this.txtPickedColor.Size = new System.Drawing.Size(492, 23);
+            this.txtPickedColor.TabIndex = 46;
+            this.toolTipDescriptions.SetToolTip(this.txtPickedColor, "最近一次取到的颜色。HSV 中 H 为 0~360，S/V 为 0~255，和颜色检测代码中的阈值单位一致。");
+            // 
             // lblParameterHint
             // 
             this.lblParameterHint.AutoSize = true;
@@ -784,7 +806,7 @@
             this.cmbInferenceBackend.Items.AddRange(new object[] {
             "ONNX Runtime / DirectML",
             "TensorRT Engine",
-            "颜色检测(橙黄色矩形)"});
+            "颜色检测(取色横向矩形)"});
             this.cmbInferenceBackend.Location = new System.Drawing.Point(457, 48);
             this.cmbInferenceBackend.Name = "cmbInferenceBackend";
             this.cmbInferenceBackend.Size = new System.Drawing.Size(191, 23);
@@ -835,6 +857,8 @@
             // 
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(800, 808);
+            Controls.Add(this.txtPickedColor);
+            Controls.Add(this.btnPickScreenColor);
             Controls.Add(this.txtDiagnostics);
             Controls.Add(this.pictureBoxPreview);
             Controls.Add(this.cmbInferenceBackend);
@@ -963,6 +987,8 @@
         private System.Windows.Forms.Label lblStatus;
         private System.Windows.Forms.PictureBox pictureBoxPreview;
         private System.Windows.Forms.TextBox txtDiagnostics;
+        private System.Windows.Forms.Button btnPickScreenColor;
+        private System.Windows.Forms.TextBox txtPickedColor;
         private System.Windows.Forms.ToolTip toolTipDescriptions;
 
         #endregion

@@ -18,4 +18,9 @@ internal enum DetectorBackend
 
 internal sealed record DetectionResult(RectangleF Box, float Score, int ClassId, string Label);
 internal sealed record DetectionRunResult(IReadOnlyList<DetectionResult> Detections);
-internal sealed record DetectorOptions(DetectorBackend Backend, bool PreferGpu, float ScoreThreshold, string? TensorRtEnginePath = null);
+internal sealed record ColorDetectionOptions(float Hue, int Saturation, int Value, float HueTolerance, int SaturationTolerance, int ValueTolerance)
+{
+    public static ColorDetectionOptions Default { get; } = new(31f, 180, 220, 14f, 70, 90);
+}
+
+internal sealed record DetectorOptions(DetectorBackend Backend, bool PreferGpu, float ScoreThreshold, string? TensorRtEnginePath = null, ColorDetectionOptions? ColorDetection = null);
