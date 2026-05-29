@@ -16,16 +16,11 @@ internal sealed class ColorRectangleDetector : IDetector
     private const float DuplicateIouThreshold = 0.45f;
     private const float DuplicateContainmentThreshold = 0.72f;
     private const float DuplicateCenterContainmentPaddingPixels = 2f;
-    private const int StableDetectionHoldMs = 140;
-    private const float StableDetectionMinScore = 0.85f;
-    private const float PartialDetectionAreaRatio = 0.82f;
     private const float DetectionBoxWidthWindowDivisor = 12.8f;
 
     private readonly float scoreThreshold;
     private ColorDetectionOptions primaryColorOptions;
     private ColorDetectionOptions secondaryColorOptions;
-    private IReadOnlyList<DetectionResult> stableDetections = Array.Empty<DetectionResult>();
-    private long stableDetectionsTick;
 
     public string ModelSummary
     {
@@ -111,7 +106,7 @@ internal sealed class ColorRectangleDetector : IDetector
         }
 
         IReadOnlyList<DetectionResult> suppressedDetections = SuppressDuplicateDetections(detections);
-        return new DetectionRunResult(StabilizePartialDetections(suppressedDetections));
+        return new DetectionRunResult(suppressedDetections);
     }
 
     public void Dispose()
@@ -453,84 +448,6 @@ internal sealed class ColorRectangleDetector : IDetector
         }
 
         return keptDetections;
-    }
-
-    private IReadOnlyList<DetectionResult> StabilizePartialDetections(IReadOnlyList<DetectionResult> detections)
-    {
-        long now = Environment.TickCount64;
-        if (detections.Count == 0)
-        {
-            if (stableDetections.Count > 0 && now - stableDetectionsTick <= StableDetectionHoldMs)
-            {
-                return stableDetections;
-            }
-
-            stableDetections = Array.Empty<DetectionResult>();
-            stableDetectionsTick = now;
-            return stableDetections;
-        }
-
-        if (stableDetections.Count == 0 || now - stableDetectionsTick > StableDetectionHoldMs)
-        {
-            stableDetections = detections.ToArray();
-            stableDetectionsTick = now;
-            return stableDetections;
-        }
-
-        DetectionResult[] stabilizedDetections = detections.ToArray();
-        for (int index = 0; index < stabilizedDetections.Length; index++)
-        {
-            DetectionResult current = stabilizedDetections[index];
-            DetectionResult? previous = FindPreviousFullDetection(current);
-            if (previous is null)
-            {
-                continue;
-            }
-
-            stabilizedDetections[index] = current with
-            {
-                Box = previous.Box,
-                Score = Math.Max(current.Score, previous.Score)
-            };
-        }
-
-        stableDetections = SuppressDuplicateDetections(stabilizedDetections.ToList()).ToArray();
-        stableDetectionsTick = now;
-        return stableDetections;
-    }
-
-    private DetectionResult? FindPreviousFullDetection(DetectionResult current)
-    {
-        float currentArea = current.Box.Width * current.Box.Height;
-        DetectionResult? bestPrevious = null;
-        float bestArea = 0f;
-
-        foreach (DetectionResult previous in stableDetections)
-        {
-            if (previous.ClassId != current.ClassId || previous.Score < StableDetectionMinScore)
-            {
-                continue;
-            }
-
-            float previousArea = previous.Box.Width * previous.Box.Height;
-            if (previousArea <= currentArea || currentArea > previousArea * PartialDetectionAreaRatio)
-            {
-                continue;
-            }
-
-            if (!IsDuplicateOrPartialDetection(previous.Box, current.Box))
-            {
-                continue;
-            }
-
-            if (previousArea > bestArea)
-            {
-                bestPrevious = previous;
-                bestArea = previousArea;
-            }
-        }
-
-        return bestPrevious;
     }
 
     private static bool IsDuplicateOrPartialDetection(RectangleF keptBox, RectangleF candidateBox)

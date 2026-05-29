@@ -47,6 +47,7 @@ namespace YOLOForAim
         private const float OverlayTrackMinIou = 0.18f;
         private const float OverlayTrackPositionBlend = 0.65f;
         private const float OverlayTrackSizeBlend = 0.55f;
+        private const int OverlayEmptyFrameHoldMs = 120;
         private static readonly string UiSettingsFilePath = Path.Combine(AppContext.BaseDirectory, "ui-settings.json");
         private static readonly string[] DirectMlModelCandidates = ["exp.onnx", "dawn.onnx", "dawn01.onnx"];
         private static readonly string[] TensorRtEngineCandidates = ["dawn2.engine", "dawn.engine"];
@@ -75,6 +76,7 @@ namespace YOLOForAim
         private Point latestOverlayCursorPoint;
         private OverlayTrack[] overlayTracks = Array.Empty<OverlayTrack>();
         private long overlayTracksTick;
+        private long latestNonEmptyOverlayDetectionsTick;
         private readonly System.Windows.Forms.Timer overlayRefreshTimer;
         private DetectionOverlayForm? detectionOverlay;
         private bool currentCenterRoiOnly;
@@ -777,12 +779,22 @@ namespace YOLOForAim
 
         private void UpdateOverlayState(Rectangle captureBounds, IReadOnlyList<DetectionResult> detections)
         {
+            long now = Environment.TickCount64;
             lock (overlayStateLock)
             {
                 latestOverlayCaptureBounds = captureBounds;
-                latestOverlayDetections = detections.Count == 0 ? Array.Empty<DetectionResult>() : detections.ToArray();
-                latestOverlayLockedDetection = stabilizedLockedDetection;
-                latestOverlayAimPoint = stabilizedLockedDetection is null
+                if (detections.Count > 0)
+                {
+                    latestOverlayDetections = detections.ToArray();
+                    latestNonEmptyOverlayDetectionsTick = now;
+                }
+                else if (now - latestNonEmptyOverlayDetectionsTick > OverlayEmptyFrameHoldMs)
+                {
+                    latestOverlayDetections = Array.Empty<DetectionResult>();
+                }
+
+                latestOverlayLockedDetection = detections.Count == 0 ? null : stabilizedLockedDetection;
+                latestOverlayAimPoint = detections.Count == 0 || stabilizedLockedDetection is null
                     ? null
                     : GetAimPoint(captureBounds, stabilizedLockedDetection);
                 latestOverlayCursorPoint = Cursor.Position;
@@ -939,6 +951,7 @@ namespace YOLOForAim
                 latestOverlayCursorPoint = Point.Empty;
                 overlayTracks = Array.Empty<OverlayTrack>();
                 overlayTracksTick = 0;
+                latestNonEmptyOverlayDetectionsTick = 0;
             }
         }
 
