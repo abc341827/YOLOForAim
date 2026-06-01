@@ -646,7 +646,7 @@ namespace YOLOForAim
             (float hue, int saturation, int value) = RgbToHsv(color.R, color.G, color.B);
             ColorDetectionOptions pickedOptions = isSecondaryColor
                 ? new ColorDetectionOptions(hue, saturation, value, 15f, 55, 70)
-                : new ColorDetectionOptions(hue, saturation, value, 10f, 55, 70);
+                : new ColorDetectionOptions(hue, saturation, value, 6f, 32, 42);
             if (isSecondaryColor)
             {
                 currentSecondaryColorDetectionOptions = pickedOptions;

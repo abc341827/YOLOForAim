@@ -26,13 +26,13 @@ internal sealed class ColorRectangleDetector : IDetector
     private const float TemplateMinPrimaryAreaCoverageRatio = 0.04f;
     private const float TemplateGoodPrimaryAreaCoverageRatio = 0.1f;
     private const float TemplateMinWeightedAreaCoverageRatio = 0.0f;
-    private const float TemplateGoodWeightedAreaCoverageRatio = 0.16f;
     private const float TemplateMinActiveRowRatio = 0.55f;
     private const float TemplateMinPrimaryRunRatio = 0.07f;
     private const float TemplateMinPrimaryColumnHeightRatio = 0.35f;
-    private const int TemplatePrimaryWeight = 3;
-    private const int TemplateSecondaryWeight = 1;
     private const int TemplateMaxCandidatesPerBand = 4;
+    private const float PrimaryHueToleranceCap = 6f;
+    private const int PrimarySaturationToleranceCap = 32;
+    private const int PrimaryValueToleranceCap = 42;
 
     private readonly float scoreThreshold;
     private ColorDetectionOptions primaryColorOptions;
@@ -107,13 +107,9 @@ internal sealed class ColorRectangleDetector : IDetector
                 byte b = pixels[pixelOffset];
                 byte g = pixels[pixelOffset + 1];
                 byte r = pixels[pixelOffset + 2];
-                if (IsTargetColorPixel(r, g, b, primary))
+                if (IsPrimaryColorPixel(r, g, b, primary))
                 {
                     mask[maskRowOffset + x] = (byte)ColorKind.Primary;
-                }
-                else if (IsSecondaryColorPixel(r, g, b, secondary))
-                {
-                    mask[maskRowOffset + x] = (byte)ColorKind.Secondary;
                 }
             }
         }
@@ -255,22 +251,15 @@ internal sealed class ColorRectangleDetector : IDetector
             return;
         }
 
-        Array.Clear(columnCountBuffer, 0, width);
         Array.Clear(primaryColumnCountBuffer, 0, width);
         for (int y = top; y <= bottom; y++)
         {
             int rowOffset = y * width;
             for (int x = 0; x < width; x++)
             {
-                byte kind = mask[rowOffset + x];
-                if (kind == (byte)ColorKind.Primary)
+                if (mask[rowOffset + x] == (byte)ColorKind.Primary)
                 {
-                    columnCountBuffer[x] += TemplatePrimaryWeight;
                     primaryColumnCountBuffer[x]++;
-                }
-                else if (kind == (byte)ColorKind.Secondary)
-                {
-                    columnCountBuffer[x] += TemplateSecondaryWeight;
                 }
             }
         }
@@ -281,32 +270,25 @@ internal sealed class ColorRectangleDetector : IDetector
             return;
         }
 
-        int windowScore = 0;
         int primaryWindowScore = 0;
         for (int x = 0; x < templateWidth; x++)
         {
-            windowScore += columnCountBuffer[x];
             primaryWindowScore += primaryColumnCountBuffer[x];
         }
 
-        windowScoreBuffer[0] = windowScore;
         primaryWindowScoreBuffer[0] = primaryWindowScore;
         for (int x = 1; x <= maxWindowX; x++)
         {
-            windowScore += columnCountBuffer[x + templateWidth - 1] - columnCountBuffer[x - 1];
             primaryWindowScore += primaryColumnCountBuffer[x + templateWidth - 1] - primaryColumnCountBuffer[x - 1];
-            windowScoreBuffer[x] = windowScore;
             primaryWindowScoreBuffer[x] = primaryWindowScore;
         }
 
         int minPrimaryPixels = Math.Max(3, (int)MathF.Ceiling(templateWidth * bandHeight * TemplateMinPrimaryAreaCoverageRatio));
-        int minWeightedPixels = Math.Max(8, (int)MathF.Ceiling(templateWidth * bandHeight * TemplateMinWeightedAreaCoverageRatio));
-        var candidates = new List<(int X, int WeightedPixels, int PrimaryPixels)>();
+        var candidates = new List<(int X, int PrimaryPixels)>();
         for (int x = 0; x <= maxWindowX; x++)
         {
-            int pixels = windowScoreBuffer[x];
             int primaryPixels = primaryWindowScoreBuffer[x];
-            if (primaryPixels < minPrimaryPixels || (minWeightedPixels > 0 && pixels < minWeightedPixels))
+            if (primaryPixels < minPrimaryPixels)
             {
                 continue;
             }
@@ -315,17 +297,16 @@ internal sealed class ColorRectangleDetector : IDetector
             int next = x < maxWindowX ? primaryWindowScoreBuffer[x + 1] : -1;
             if (primaryPixels >= previous && primaryPixels >= next && IsTemplateShapeCandidate(mask, width, top, bottom, x, templateWidth))
             {
-                candidates.Add((x, pixels, primaryPixels));
+                candidates.Add((x, primaryPixels));
             }
         }
 
-        foreach ((int x, int pixels, int primaryPixels) in candidates
-            .OrderByDescending(static candidate => candidate.WeightedPixels)
+        foreach ((int x, int primaryPixels) in candidates
+            .OrderByDescending(static candidate => candidate.PrimaryPixels)
             .Take(TemplateMaxCandidatesPerBand))
         {
             float primaryScore = Math.Clamp(primaryPixels / Math.Max(1f, templateWidth * bandHeight * TemplateGoodPrimaryAreaCoverageRatio), 0f, 1f);
-            float weightedScore = Math.Clamp(pixels / Math.Max(1f, templateWidth * bandHeight * TemplateGoodWeightedAreaCoverageRatio), 0f, 1f);
-            float score = Math.Clamp((primaryScore * 0.7f) + (weightedScore * 0.3f), 0f, 1f);
+            float score = primaryScore;
             if (score < scoreThreshold)
             {
                 continue;
@@ -444,6 +425,18 @@ internal sealed class ColorRectangleDetector : IDetector
         {
             primaryWindowScoreBuffer = new int[width];
         }
+    }
+
+    private static bool IsPrimaryColorPixel(byte r, byte g, byte b, ColorDetectionOptions options)
+    {
+        ColorDetectionOptions strictOptions = options with
+        {
+            HueTolerance = Math.Min(options.HueTolerance, PrimaryHueToleranceCap),
+            SaturationTolerance = Math.Min(options.SaturationTolerance, PrimarySaturationToleranceCap),
+            ValueTolerance = Math.Min(options.ValueTolerance, PrimaryValueToleranceCap)
+        };
+
+        return IsTargetColorPixel(r, g, b, strictOptions);
     }
 
     private static bool IsTargetColorPixel(byte r, byte g, byte b, ColorDetectionOptions options)

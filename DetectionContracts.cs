@@ -20,7 +20,7 @@ internal sealed record DetectionResult(RectangleF Box, float Score, int ClassId,
 internal sealed record DetectionRunResult(IReadOnlyList<DetectionResult> Detections);
 internal sealed record ColorDetectionOptions(float Hue, int Saturation, int Value, float HueTolerance, int SaturationTolerance, int ValueTolerance)
 {
-    public static ColorDetectionOptions Default { get; } = new(31f, 180, 220, 14f, 70, 90);
+    public static ColorDetectionOptions Default { get; } = new(31f, 180, 220, 6f, 32, 42);
     public static ColorDetectionOptions DefaultSecondary { get; } = new(0f, 0, 20, 30f, 45, 55);
 }
 
