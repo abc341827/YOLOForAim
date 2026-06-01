@@ -40,6 +40,7 @@ internal sealed class DesktopDuplicationCapture : IDisposable
         }
 
         Rectangle captureBounds;
+        int referenceWidth = 0;
         bool frameAcquired = false;
 
         try
@@ -55,6 +56,7 @@ internal sealed class DesktopDuplicationCapture : IDisposable
                 }
 
                 Rectangle windowBounds = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+                referenceWidth = windowBounds.Width;
                 Rectangle requestedBounds = centerRoiOnly
                     ? GetCenteredRoiBounds(windowBounds, roiSize)
                     : windowBounds;
@@ -115,7 +117,7 @@ internal sealed class DesktopDuplicationCapture : IDisposable
                 }
             }
 
-            capturedFrame = new CapturedPixelFrame(pixels, width, height, stride, captureBounds, Environment.TickCount64, centerRoiOnly);
+            capturedFrame = new CapturedPixelFrame(pixels, width, height, stride, captureBounds, referenceWidth > 0 ? referenceWidth : width, Environment.TickCount64, centerRoiOnly);
             return true;
         }
         finally
@@ -300,4 +302,4 @@ internal sealed class DesktopDuplicationCapture : IDisposable
     }
 }
 
-internal sealed record CapturedPixelFrame(byte[] Pixels, int Width, int Height, int Stride, Rectangle ScreenBounds, long CapturedTick, bool IsRegionAlreadyCropped);
+internal sealed record CapturedPixelFrame(byte[] Pixels, int Width, int Height, int Stride, Rectangle ScreenBounds, int ReferenceWidth, long CapturedTick, bool IsRegionAlreadyCropped);

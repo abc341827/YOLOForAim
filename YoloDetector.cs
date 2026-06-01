@@ -42,8 +42,9 @@ internal sealed class YoloDetector : IDetector
         ModelSummary = BuildModelSummary();
     }
 
-    public DetectionRunResult Detect(byte[] sourcePixels, int sourceWidth, int sourceHeight, int sourceStride, Rectangle sourceRegion)
+    public DetectionRunResult Detect(byte[] sourcePixels, int sourceWidth, int sourceHeight, int sourceStride, Rectangle sourceRegion, int referenceWidth)
     {
+        _ = referenceWidth;
         Rectangle normalizedSourceRegion = NormalizeSourceRegion(sourceRegion, sourceWidth, sourceHeight);
         PreprocessResult preprocess = Preprocess(sourcePixels, sourceWidth, sourceHeight, sourceStride, normalizedSourceRegion);
         var inputs = CreateInputs(preprocess.TensorData);

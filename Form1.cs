@@ -513,7 +513,8 @@ namespace YOLOForAim
                             frameToProcess.Width,
                             frameToProcess.Height,
                             frameToProcess.Stride,
-                            sourceRegion) ?? new DetectionRunResult(Array.Empty<DetectionResult>());
+                            sourceRegion,
+                            frameToProcess.ReferenceWidth) ?? new DetectionRunResult(Array.Empty<DetectionResult>());
                         detectStopwatch.Stop();
                         TryMoveMouseToNearestDetection(result.Detections, frameToProcess.ScreenBounds, processedVersion, frameToProcess.CapturedTick);
                         UpdateOverlayState(frameToProcess.ScreenBounds, BuildOverlayDetections(result.Detections, frameToProcess.ScreenBounds, processedVersion, frameToProcess.CapturedTick));

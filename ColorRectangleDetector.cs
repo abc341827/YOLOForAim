@@ -22,10 +22,10 @@ internal sealed class ColorRectangleDetector : IDetector
     private const int TemplateMinHeightPixels = 3;
     private const int TemplateMaxHeightPixels = 15;
     private const int TemplateAllowedRowGapPixels = 1;
-    private const float TemplateMinPrimaryRowCoverageRatio = 0.02f;
-    private const float TemplateMinPrimaryAreaCoverageRatio = 0.028f;
+    private const float TemplateMinPrimaryRowCoverageRatio = 0.03f;
+    private const float TemplateMinPrimaryAreaCoverageRatio = 0.04f;
     private const float TemplateGoodPrimaryAreaCoverageRatio = 0.1f;
-    private const float TemplateMinWeightedAreaCoverageRatio = 0.04f;
+    private const float TemplateMinWeightedAreaCoverageRatio = 0.0f;
     private const float TemplateGoodWeightedAreaCoverageRatio = 0.16f;
     private const float TemplateMinActiveRowRatio = 0.55f;
     private const float TemplateMinPrimaryRunRatio = 0.07f;
@@ -68,7 +68,7 @@ internal sealed class ColorRectangleDetector : IDetector
         secondaryColorOptions = secondaryOptions;
     }
 
-    public DetectionRunResult Detect(byte[] sourcePixels, int sourceWidth, int sourceHeight, int sourceStride, Rectangle sourceRegion)
+    public DetectionRunResult Detect(byte[] sourcePixels, int sourceWidth, int sourceHeight, int sourceStride, Rectangle sourceRegion, int referenceWidth)
     {
         Rectangle region = NormalizeSourceRegion(sourceRegion, sourceWidth, sourceHeight);
         int regionWidth = region.Width;
@@ -77,7 +77,7 @@ internal sealed class ColorRectangleDetector : IDetector
         ColorDetectionOptions secondary = secondaryColorOptions;
         byte[] mask = BuildColorMask(sourcePixels, sourceStride, region, primary, secondary);
         CloseHorizontalMaskGaps(mask, regionWidth, regionHeight, HorizontalCloseGapPixels);
-        IReadOnlyList<DetectionResult> templateDetections = DetectFixedWidthTemplates(mask, region, sourceWidth);
+        IReadOnlyList<DetectionResult> templateDetections = DetectFixedWidthTemplates(mask, region, Math.Max(sourceWidth, referenceWidth));
         return new DetectionRunResult(templateDetections);
     }
 
@@ -306,7 +306,7 @@ internal sealed class ColorRectangleDetector : IDetector
         {
             int pixels = windowScoreBuffer[x];
             int primaryPixels = primaryWindowScoreBuffer[x];
-            if (primaryPixels < minPrimaryPixels || pixels < minWeightedPixels)
+            if (primaryPixels < minPrimaryPixels || (minWeightedPixels > 0 && pixels < minWeightedPixels))
             {
                 continue;
             }

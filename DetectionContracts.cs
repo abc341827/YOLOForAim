@@ -6,7 +6,7 @@ internal interface IDetector : IDisposable
 {
     string ModelSummary { get; }
 
-    DetectionRunResult Detect(byte[] sourcePixels, int sourceWidth, int sourceHeight, int sourceStride, Rectangle sourceRegion);
+    DetectionRunResult Detect(byte[] sourcePixels, int sourceWidth, int sourceHeight, int sourceStride, Rectangle sourceRegion, int referenceWidth);
 }
 
 internal enum DetectorBackend
