@@ -19,12 +19,28 @@ internal sealed class ColorRectangleDetector : IDetector
     private const float DetectionBoxWidthWindowDivisor = 12.8f;
     private const float MinOriginalWidthToScaledWidthRatio = 0.28f;
     private const float MinOriginalAreaToScaledAreaRatio = 0.18f;
+    private const int TemplateMinHeightPixels = 3;
+    private const int TemplateMaxHeightPixels = 15;
+    private const int TemplateAllowedRowGapPixels = 1;
+    private const float TemplateMinPrimaryRowCoverageRatio = 0.01f;
+    private const float TemplateMinPrimaryAreaCoverageRatio = 0.012f;
+    private const float TemplateGoodPrimaryAreaCoverageRatio = 0.08f;
+    private const float TemplateMinWeightedAreaCoverageRatio = 0.035f;
+    private const float TemplateGoodWeightedAreaCoverageRatio = 0.16f;
+    private const int TemplatePrimaryWeight = 3;
+    private const int TemplateSecondaryWeight = 1;
+    private const int TemplateMaxCandidatesPerBand = 4;
 
     private readonly float scoreThreshold;
     private ColorDetectionOptions primaryColorOptions;
     private ColorDetectionOptions secondaryColorOptions;
     private byte[] maskBuffer = Array.Empty<byte>();
     private int[] componentStackBuffer = Array.Empty<int>();
+    private int[] rowCountBuffer = Array.Empty<int>();
+    private int[] columnCountBuffer = Array.Empty<int>();
+    private int[] primaryColumnCountBuffer = Array.Empty<int>();
+    private int[] windowScoreBuffer = Array.Empty<int>();
+    private int[] primaryWindowScoreBuffer = Array.Empty<int>();
 
     public string ModelSummary
     {
@@ -58,59 +74,8 @@ internal sealed class ColorRectangleDetector : IDetector
         ColorDetectionOptions secondary = secondaryColorOptions;
         byte[] mask = BuildColorMask(sourcePixels, sourceStride, region, primary, secondary);
         CloseHorizontalMaskGaps(mask, regionWidth, regionHeight, HorizontalCloseGapPixels);
-        List<ComponentBox> components = FindComponents(mask, regionWidth, regionHeight);
-        List<ComponentBox> mergedComponents = MergeNearbyComponents(components);
-
-        var detections = new List<DetectionResult>();
-        var pairedPrimaryIndexes = new HashSet<int>();
-        var pairedSecondaryIndexes = new HashSet<int>();
-
-        for (int primaryIndex = 0; primaryIndex < mergedComponents.Count; primaryIndex++)
-        {
-            ComponentBox primaryComponent = mergedComponents[primaryIndex];
-            if (primaryComponent.Kind != ColorKind.Primary)
-            {
-                continue;
-            }
-
-            for (int secondaryIndex = 0; secondaryIndex < mergedComponents.Count; secondaryIndex++)
-            {
-                ComponentBox secondaryComponent = mergedComponents[secondaryIndex];
-                if (pairedSecondaryIndexes.Contains(secondaryIndex) ||
-                    secondaryComponent.Kind != ColorKind.Secondary ||
-                    !CanCreateHorizontalPair(primaryComponent, secondaryComponent))
-                {
-                    continue;
-                }
-
-                DetectionResult? pairDetection = CreateDetection(primaryComponent.MergeAsPair(secondaryComponent), region.Location, sourceWidth, "ColorPair");
-                if (pairDetection is not null)
-                {
-                    detections.Add(pairDetection);
-                    pairedPrimaryIndexes.Add(primaryIndex);
-                    pairedSecondaryIndexes.Add(secondaryIndex);
-                    break;
-                }
-            }
-        }
-
-        for (int index = 0; index < mergedComponents.Count; index++)
-        {
-            ComponentBox component = mergedComponents[index];
-            if (component.Kind != ColorKind.Primary || pairedPrimaryIndexes.Contains(index))
-            {
-                continue;
-            }
-
-            DetectionResult? detection = CreateDetection(component, region.Location, sourceWidth, "ColorRect");
-            if (detection is not null)
-            {
-                detections.Add(detection);
-            }
-        }
-
-        IReadOnlyList<DetectionResult> suppressedDetections = SuppressDuplicateDetections(detections);
-        return new DetectionRunResult(suppressedDetections);
+        IReadOnlyList<DetectionResult> templateDetections = DetectFixedWidthTemplates(mask, region, sourceWidth);
+        return new DetectionRunResult(templateDetections);
     }
 
     public void Dispose()
@@ -143,7 +108,7 @@ internal sealed class ColorRectangleDetector : IDetector
                 {
                     mask[maskRowOffset + x] = (byte)ColorKind.Primary;
                 }
-                else if (IsTargetColorPixel(r, g, b, secondary))
+                else if (IsSecondaryColorPixel(r, g, b, secondary))
                 {
                     mask[maskRowOffset + x] = (byte)ColorKind.Secondary;
                 }
@@ -215,6 +180,215 @@ internal sealed class ColorRectangleDetector : IDetector
         }
     }
 
+    private IReadOnlyList<DetectionResult> DetectFixedWidthTemplates(byte[] mask, Rectangle region, int sourceWidth)
+    {
+        int width = region.Width;
+        int height = region.Height;
+        int templateWidth = Math.Clamp((int)MathF.Round(sourceWidth / DetectionBoxWidthWindowDivisor), MinBoxWidth, width);
+        EnsureTemplateBuffers(width, height);
+        Array.Clear(rowCountBuffer, 0, height);
+
+        for (int y = 0; y < height; y++)
+        {
+            int rowOffset = y * width;
+            int count = 0;
+            for (int x = 0; x < width; x++)
+            {
+                if (mask[rowOffset + x] == (byte)ColorKind.Primary)
+                {
+                    count++;
+                }
+            }
+
+            rowCountBuffer[y] = count;
+        }
+
+        int minRowPixels = Math.Max(1, (int)MathF.Ceiling(templateWidth * TemplateMinPrimaryRowCoverageRatio));
+        var detections = new List<DetectionResult>();
+        int bandStart = -1;
+        int lastActiveRow = -1;
+        int gapRows = 0;
+
+        for (int y = 0; y <= height; y++)
+        {
+            bool activeRow = y < height && rowCountBuffer[y] >= minRowPixels;
+            if (activeRow)
+            {
+                if (bandStart < 0)
+                {
+                    bandStart = y;
+                }
+
+                lastActiveRow = y;
+                gapRows = 0;
+                continue;
+            }
+
+            if (bandStart >= 0 && gapRows < TemplateAllowedRowGapPixels && y < height)
+            {
+                gapRows++;
+                continue;
+            }
+
+            if (bandStart >= 0 && lastActiveRow >= bandStart)
+            {
+                AddTemplateDetectionsForBand(mask, region.Location, width, bandStart, lastActiveRow, templateWidth, detections);
+            }
+
+            bandStart = -1;
+            lastActiveRow = -1;
+            gapRows = 0;
+        }
+
+        return SuppressDuplicateDetections(detections);
+    }
+
+    private void AddTemplateDetectionsForBand(byte[] mask, Point sourceOffset, int width, int bandTop, int bandBottom, int templateWidth, List<DetectionResult> detections)
+    {
+        (int top, int bottom) = ClampTemplateBandToBestRows(bandTop, bandBottom);
+        int bandHeight = bottom - top + 1;
+        if (bandHeight < TemplateMinHeightPixels || bandHeight > TemplateMaxHeightPixels)
+        {
+            return;
+        }
+
+        Array.Clear(columnCountBuffer, 0, width);
+        Array.Clear(primaryColumnCountBuffer, 0, width);
+        for (int y = top; y <= bottom; y++)
+        {
+            int rowOffset = y * width;
+            for (int x = 0; x < width; x++)
+            {
+                byte kind = mask[rowOffset + x];
+                if (kind == (byte)ColorKind.Primary)
+                {
+                    columnCountBuffer[x] += TemplatePrimaryWeight;
+                    primaryColumnCountBuffer[x]++;
+                }
+                else if (kind == (byte)ColorKind.Secondary)
+                {
+                    columnCountBuffer[x] += TemplateSecondaryWeight;
+                }
+            }
+        }
+
+        int maxWindowX = width - templateWidth;
+        if (maxWindowX < 0)
+        {
+            return;
+        }
+
+        int windowScore = 0;
+        int primaryWindowScore = 0;
+        for (int x = 0; x < templateWidth; x++)
+        {
+            windowScore += columnCountBuffer[x];
+            primaryWindowScore += primaryColumnCountBuffer[x];
+        }
+
+        windowScoreBuffer[0] = windowScore;
+        primaryWindowScoreBuffer[0] = primaryWindowScore;
+        for (int x = 1; x <= maxWindowX; x++)
+        {
+            windowScore += columnCountBuffer[x + templateWidth - 1] - columnCountBuffer[x - 1];
+            primaryWindowScore += primaryColumnCountBuffer[x + templateWidth - 1] - primaryColumnCountBuffer[x - 1];
+            windowScoreBuffer[x] = windowScore;
+            primaryWindowScoreBuffer[x] = primaryWindowScore;
+        }
+
+        int minPrimaryPixels = Math.Max(3, (int)MathF.Ceiling(templateWidth * bandHeight * TemplateMinPrimaryAreaCoverageRatio));
+        int minWeightedPixels = Math.Max(8, (int)MathF.Ceiling(templateWidth * bandHeight * TemplateMinWeightedAreaCoverageRatio));
+        var candidates = new List<(int X, int WeightedPixels, int PrimaryPixels)>();
+        for (int x = 0; x <= maxWindowX; x++)
+        {
+            int pixels = windowScoreBuffer[x];
+            int primaryPixels = primaryWindowScoreBuffer[x];
+            if (primaryPixels < minPrimaryPixels || pixels < minWeightedPixels)
+            {
+                continue;
+            }
+
+            int previous = x > 0 ? windowScoreBuffer[x - 1] : -1;
+            int next = x < maxWindowX ? windowScoreBuffer[x + 1] : -1;
+            if (pixels >= previous && pixels >= next)
+            {
+                candidates.Add((x, pixels, primaryPixels));
+            }
+        }
+
+        foreach ((int x, int pixels, int primaryPixels) in candidates
+            .OrderByDescending(static candidate => candidate.WeightedPixels)
+            .Take(TemplateMaxCandidatesPerBand))
+        {
+            float primaryScore = Math.Clamp(primaryPixels / Math.Max(1f, templateWidth * bandHeight * TemplateGoodPrimaryAreaCoverageRatio), 0f, 1f);
+            float weightedScore = Math.Clamp(pixels / Math.Max(1f, templateWidth * bandHeight * TemplateGoodWeightedAreaCoverageRatio), 0f, 1f);
+            float score = Math.Clamp((primaryScore * 0.7f) + (weightedScore * 0.3f), 0f, 1f);
+            if (score < scoreThreshold)
+            {
+                continue;
+            }
+
+            RectangleF box = new(sourceOffset.X + x, sourceOffset.Y + top, templateWidth, bandHeight);
+            detections.Add(new DetectionResult(box, score, 0, "ColorTemplate"));
+        }
+    }
+
+    private (int Top, int Bottom) ClampTemplateBandToBestRows(int bandTop, int bandBottom)
+    {
+        int bandHeight = bandBottom - bandTop + 1;
+        if (bandHeight <= TemplateMaxHeightPixels)
+        {
+            return (bandTop, bandBottom);
+        }
+
+        int bestTop = bandTop;
+        int bestScore = int.MinValue;
+        for (int top = bandTop; top + TemplateMaxHeightPixels - 1 <= bandBottom; top++)
+        {
+            int score = 0;
+            for (int y = top; y < top + TemplateMaxHeightPixels; y++)
+            {
+                score += rowCountBuffer[y];
+            }
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestTop = top;
+            }
+        }
+
+        return (bestTop, bestTop + TemplateMaxHeightPixels - 1);
+    }
+
+    private void EnsureTemplateBuffers(int width, int height)
+    {
+        if (rowCountBuffer.Length < height)
+        {
+            rowCountBuffer = new int[height];
+        }
+
+        if (columnCountBuffer.Length < width)
+        {
+            columnCountBuffer = new int[width];
+        }
+
+        if (primaryColumnCountBuffer.Length < width)
+        {
+            primaryColumnCountBuffer = new int[width];
+        }
+
+        if (windowScoreBuffer.Length < width)
+        {
+            windowScoreBuffer = new int[width];
+        }
+
+        if (primaryWindowScoreBuffer.Length < width)
+        {
+            primaryWindowScoreBuffer = new int[width];
+        }
+    }
+
     private static bool IsTargetColorPixel(byte r, byte g, byte b, ColorDetectionOptions options)
     {
         int value = Math.Max(r, Math.Max(g, b));
@@ -238,6 +412,33 @@ internal sealed class ColorRectangleDetector : IDetector
 
         float hue = GetHue(r, g, b, value, delta);
         return GetHueDistance(hue, options.Hue) <= options.HueTolerance;
+    }
+
+    private static bool IsSecondaryColorPixel(byte r, byte g, byte b, ColorDetectionOptions options)
+    {
+        int value = Math.Max(r, Math.Max(g, b));
+        int valueTolerance = Math.Max(options.ValueTolerance, 80);
+        if (Math.Abs(value - options.Value) > valueTolerance)
+        {
+            return false;
+        }
+
+        int min = Math.Min(r, Math.Min(g, b));
+        int delta = value - min;
+        int saturation = value == 0 ? 0 : delta * 255 / value;
+        int saturationTolerance = Math.Max(options.SaturationTolerance, 80);
+        if (Math.Abs(saturation - options.Saturation) > saturationTolerance)
+        {
+            return false;
+        }
+
+        if (options.Saturation <= 60 || options.Value <= 90 || saturation <= 70)
+        {
+            return true;
+        }
+
+        float hue = GetHue(r, g, b, value, delta);
+        return GetHueDistance(hue, options.Hue) <= Math.Max(options.HueTolerance, 35f);
     }
 
     private static (float Hue, int Saturation, int Value) RgbToHsv(byte r, byte g, byte b)
