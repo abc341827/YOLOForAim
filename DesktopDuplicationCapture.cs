@@ -115,7 +115,7 @@ internal sealed class DesktopDuplicationCapture : IDisposable
                 }
             }
 
-            capturedFrame = new CapturedPixelFrame(pixels, width, height, stride, captureBounds, centerRoiOnly);
+            capturedFrame = new CapturedPixelFrame(pixels, width, height, stride, captureBounds, Environment.TickCount64, centerRoiOnly);
             return true;
         }
         finally
@@ -300,4 +300,4 @@ internal sealed class DesktopDuplicationCapture : IDisposable
     }
 }
 
-internal sealed record CapturedPixelFrame(byte[] Pixels, int Width, int Height, int Stride, Rectangle ScreenBounds, bool IsRegionAlreadyCropped);
+internal sealed record CapturedPixelFrame(byte[] Pixels, int Width, int Height, int Stride, Rectangle ScreenBounds, long CapturedTick, bool IsRegionAlreadyCropped);
