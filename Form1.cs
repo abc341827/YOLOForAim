@@ -2078,6 +2078,12 @@ namespace YOLOForAim
             UpdateStyles();
         }
 
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            ApplyCaptureExclusion();
+        }
+
         protected override bool ShowWithoutActivation => true;
 
         protected override CreateParams CreateParams
@@ -2139,6 +2145,7 @@ namespace YOLOForAim
             if (wasHidden)
             {
                 Show();
+                ApplyCaptureExclusion();
             }
 
             if (boundsChanged || wasHidden)
@@ -2226,6 +2233,19 @@ namespace YOLOForAim
         {
         }
 
+        private void ApplyCaptureExclusion()
+        {
+            if (Handle == IntPtr.Zero)
+            {
+                return;
+            }
+
+            if (!SetWindowDisplayAffinity(Handle, WDA_EXCLUDEFROMCAPTURE))
+            {
+                SetWindowDisplayAffinity(Handle, WDA_MONITOR);
+            }
+        }
+
         private static RectangleF GetDetectionOverlayBounds(DetectionResult detection, float offsetX, float offsetY)
         {
             return new RectangleF(offsetX + detection.Box.X, offsetY + detection.Box.Y, detection.Box.Width, detection.Box.Height);
@@ -2250,6 +2270,13 @@ namespace YOLOForAim
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool IsIconic(IntPtr hWnd);
+
+        private const uint WDA_MONITOR = 0x00000001;
+        private const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
 
         private static readonly IntPtr HWND_TOPMOST = new(-1);
         private const uint SWP_NOACTIVATE = 0x0010;
