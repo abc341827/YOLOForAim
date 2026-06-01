@@ -436,7 +436,7 @@ namespace YOLOForAim
             {
                 try
                 {
-                    if (windowCapture is null || !windowCapture.TryGetLatestFrame(50, out CapturedPixelFrame capturedFrame))
+                    if (windowCapture is null || !windowCapture.TryGetLatestFrame(50, currentCenterRoiOnly, currentRoiSize, out CapturedPixelFrame capturedFrame))
                     {
                         await Task.Delay(1, cancellationToken);
                         continue;
@@ -490,13 +490,15 @@ namespace YOLOForAim
 
                     if (frameToProcess is null)
                     {
-                        await Task.Delay(5, cancellationToken);
+                        await Task.Delay(1, cancellationToken);
                         continue;
                     }
 
                     if (frameToProcess is not null)
                     {
-                        Rectangle sourceRegion = GetSourceRegion(frameToProcess.Width, frameToProcess.Height);
+                        Rectangle sourceRegion = frameToProcess.IsRegionAlreadyCropped
+                            ? new Rectangle(0, 0, frameToProcess.Width, frameToProcess.Height)
+                            : GetSourceRegion(frameToProcess.Width, frameToProcess.Height);
                         var detectStopwatch = Stopwatch.StartNew();
                         DetectionRunResult result = detector?.Detect(
                             frameToProcess.Pixels,
@@ -798,11 +800,6 @@ namespace YOLOForAim
                     ? null
                     : GetAimPoint(captureBounds, stabilizedLockedDetection);
                 latestOverlayCursorPoint = Cursor.Position;
-            }
-
-            if (!IsDisposed && chkOverlayEnabled.Checked)
-            {
-                BeginInvoke(new Action(RefreshDetectionOverlay));
             }
         }
 
@@ -2077,6 +2074,8 @@ namespace YOLOForAim
             TransparencyKey = Color.Magenta;
             TopMost = true;
             DoubleBuffered = true;
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            UpdateStyles();
         }
 
         protected override bool ShowWithoutActivation => true;
@@ -2130,17 +2129,22 @@ namespace YOLOForAim
             stopSquareTopOffsetPixels = newStopSquareTopOffsetPixels;
 
             Rectangle overlayBounds = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
-            if (Bounds != overlayBounds)
+            bool boundsChanged = Bounds != overlayBounds;
+            if (boundsChanged)
             {
                 Bounds = overlayBounds;
             }
 
-            if (!Visible)
+            bool wasHidden = !Visible;
+            if (wasHidden)
             {
                 Show();
             }
 
-            SetWindowPos(Handle, HWND_TOPMOST, overlayBounds.Left, overlayBounds.Top, overlayBounds.Width, overlayBounds.Height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            if (boundsChanged || wasHidden)
+            {
+                SetWindowPos(Handle, HWND_TOPMOST, overlayBounds.Left, overlayBounds.Top, overlayBounds.Width, overlayBounds.Height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            }
 
             Invalidate();
         }
@@ -2216,6 +2220,10 @@ namespace YOLOForAim
                 e.Graphics.DrawLine(cursorPen, cursorX - cursorHalfSize, cursorY, cursorX + cursorHalfSize, cursorY);
                 e.Graphics.DrawLine(cursorPen, cursorX, cursorY - cursorHalfSize, cursorX, cursorY + cursorHalfSize);
             }
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
         }
 
         private static RectangleF GetDetectionOverlayBounds(DetectionResult detection, float offsetX, float offsetY)

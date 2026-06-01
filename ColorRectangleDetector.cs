@@ -23,6 +23,8 @@ internal sealed class ColorRectangleDetector : IDetector
     private readonly float scoreThreshold;
     private ColorDetectionOptions primaryColorOptions;
     private ColorDetectionOptions secondaryColorOptions;
+    private byte[] maskBuffer = Array.Empty<byte>();
+    private int[] componentStackBuffer = Array.Empty<int>();
 
     public string ModelSummary
     {
@@ -124,9 +126,9 @@ internal sealed class ColorRectangleDetector : IDetector
             : normalizedSourceRegion;
     }
 
-    private static byte[] BuildColorMask(byte[] pixels, int stride, Rectangle region, ColorDetectionOptions primary, ColorDetectionOptions secondary)
+    private byte[] BuildColorMask(byte[] pixels, int stride, Rectangle region, ColorDetectionOptions primary, ColorDetectionOptions secondary)
     {
-        byte[] mask = new byte[region.Width * region.Height];
+        byte[] mask = RentMaskBuffer(region.Width * region.Height);
         for (int y = 0; y < region.Height; y++)
         {
             int sourceRowOffset = (region.Top + y) * stride;
@@ -149,6 +151,20 @@ internal sealed class ColorRectangleDetector : IDetector
         }
 
         return mask;
+    }
+
+    private byte[] RentMaskBuffer(int requiredLength)
+    {
+        if (maskBuffer.Length < requiredLength)
+        {
+            maskBuffer = new byte[requiredLength];
+        }
+        else
+        {
+            Array.Clear(maskBuffer, 0, requiredLength);
+        }
+
+        return maskBuffer;
     }
 
     private static void CloseHorizontalMaskGaps(byte[] mask, int width, int height, int maxGapPixels)
@@ -201,11 +217,27 @@ internal sealed class ColorRectangleDetector : IDetector
 
     private static bool IsTargetColorPixel(byte r, byte g, byte b, ColorDetectionOptions options)
     {
-        (float hue, int saturation, int value) = RgbToHsv(r, g, b);
-        bool hueMatches = options.Saturation <= 35 || options.Value <= 45 || GetHueDistance(hue, options.Hue) <= options.HueTolerance;
-        return hueMatches &&
-            Math.Abs(saturation - options.Saturation) <= options.SaturationTolerance &&
-            Math.Abs(value - options.Value) <= options.ValueTolerance;
+        int value = Math.Max(r, Math.Max(g, b));
+        if (Math.Abs(value - options.Value) > options.ValueTolerance)
+        {
+            return false;
+        }
+
+        int min = Math.Min(r, Math.Min(g, b));
+        int delta = value - min;
+        int saturation = value == 0 ? 0 : delta * 255 / value;
+        if (Math.Abs(saturation - options.Saturation) > options.SaturationTolerance)
+        {
+            return false;
+        }
+
+        if (options.Saturation <= 35 || options.Value <= 45)
+        {
+            return true;
+        }
+
+        float hue = GetHue(r, g, b, value, delta);
+        return GetHueDistance(hue, options.Hue) <= options.HueTolerance;
     }
 
     private static (float Hue, int Saturation, int Value) RgbToHsv(byte r, byte g, byte b)
@@ -216,6 +248,18 @@ internal sealed class ColorRectangleDetector : IDetector
         if (delta == 0)
         {
             return (0f, 0, max);
+        }
+
+        float hue = GetHue(r, g, b, max, delta);
+        int saturation = max == 0 ? 0 : delta * 255 / max;
+        return (hue, saturation, max);
+    }
+
+    private static float GetHue(byte r, byte g, byte b, int max, int delta)
+    {
+        if (delta == 0)
+        {
+            return 0f;
         }
 
         float hue;
@@ -236,8 +280,7 @@ internal sealed class ColorRectangleDetector : IDetector
             hue = 60f * (((r - g) / (float)delta) + 4f);
         }
 
-        int saturation = max == 0 ? 0 : delta * 255 / max;
-        return (hue, saturation, max);
+        return hue;
     }
 
     private static float GetHueDistance(float hue, float targetHue)
@@ -246,10 +289,14 @@ internal sealed class ColorRectangleDetector : IDetector
         return distance > 180f ? 360f - distance : distance;
     }
 
-    private static List<ComponentBox> FindComponents(byte[] mask, int width, int height)
+    private List<ComponentBox> FindComponents(byte[] mask, int width, int height)
     {
         var components = new List<ComponentBox>();
-        int[] stack = new int[mask.Length];
+        int requiredLength = width * height;
+        if (componentStackBuffer.Length < requiredLength)
+        {
+            componentStackBuffer = new int[requiredLength];
+        }
 
         for (int y = 0; y < height; y++)
         {
@@ -262,7 +309,7 @@ internal sealed class ColorRectangleDetector : IDetector
                     continue;
                 }
 
-                ComponentBox component = FloodFill(mask, width, height, startIndex, stack);
+                ComponentBox component = FloodFill(mask, width, height, startIndex, componentStackBuffer);
                 if (component.Area >= MinComponentArea)
                 {
                     components.Add(component);

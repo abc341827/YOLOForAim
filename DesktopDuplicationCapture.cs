@@ -31,7 +31,7 @@ internal sealed class DesktopDuplicationCapture : IDisposable
         InitializeDuplication();
     }
 
-    public bool TryGetLatestFrame(int timeoutMilliseconds, out CapturedPixelFrame capturedFrame)
+    public bool TryGetLatestFrame(int timeoutMilliseconds, bool centerRoiOnly, int roiSize, out CapturedPixelFrame capturedFrame)
     {
         capturedFrame = default;
         if (disposed || duplication is null || d3dContext is null || stagingTexture is null)
@@ -55,7 +55,10 @@ internal sealed class DesktopDuplicationCapture : IDisposable
                 }
 
                 Rectangle windowBounds = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
-                captureBounds = Rectangle.Intersect(windowBounds, outputBounds);
+                Rectangle requestedBounds = centerRoiOnly
+                    ? GetCenteredRoiBounds(windowBounds, roiSize)
+                    : windowBounds;
+                captureBounds = Rectangle.Intersect(requestedBounds, outputBounds);
                 if (captureBounds.Width <= 0 || captureBounds.Height <= 0)
                 {
                     return false;
@@ -112,13 +115,23 @@ internal sealed class DesktopDuplicationCapture : IDisposable
                 }
             }
 
-            capturedFrame = new CapturedPixelFrame(pixels, width, height, stride, captureBounds);
+            capturedFrame = new CapturedPixelFrame(pixels, width, height, stride, captureBounds, centerRoiOnly);
             return true;
         }
         finally
         {
             d3dContext.Unmap(stagingTexture, 0);
         }
+    }
+
+    private static Rectangle GetCenteredRoiBounds(Rectangle windowBounds, int roiSize)
+    {
+        int squareSize = Math.Max(64, Math.Min(roiSize, Math.Min(windowBounds.Width, windowBounds.Height)));
+        return new Rectangle(
+            windowBounds.Left + ((windowBounds.Width - squareSize) / 2),
+            windowBounds.Top + ((windowBounds.Height - squareSize) / 2),
+            squareSize,
+            squareSize);
     }
 
     private void InitializeDuplication()
@@ -287,4 +300,4 @@ internal sealed class DesktopDuplicationCapture : IDisposable
     }
 }
 
-internal sealed record CapturedPixelFrame(byte[] Pixels, int Width, int Height, int Stride, Rectangle ScreenBounds);
+internal sealed record CapturedPixelFrame(byte[] Pixels, int Width, int Height, int Stride, Rectangle ScreenBounds, bool IsRegionAlreadyCropped);
