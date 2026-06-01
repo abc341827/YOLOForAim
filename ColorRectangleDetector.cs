@@ -22,11 +22,14 @@ internal sealed class ColorRectangleDetector : IDetector
     private const int TemplateMinHeightPixels = 3;
     private const int TemplateMaxHeightPixels = 15;
     private const int TemplateAllowedRowGapPixels = 1;
-    private const float TemplateMinPrimaryRowCoverageRatio = 0.01f;
-    private const float TemplateMinPrimaryAreaCoverageRatio = 0.012f;
-    private const float TemplateGoodPrimaryAreaCoverageRatio = 0.08f;
-    private const float TemplateMinWeightedAreaCoverageRatio = 0.035f;
+    private const float TemplateMinPrimaryRowCoverageRatio = 0.02f;
+    private const float TemplateMinPrimaryAreaCoverageRatio = 0.028f;
+    private const float TemplateGoodPrimaryAreaCoverageRatio = 0.1f;
+    private const float TemplateMinWeightedAreaCoverageRatio = 0.04f;
     private const float TemplateGoodWeightedAreaCoverageRatio = 0.16f;
+    private const float TemplateMinActiveRowRatio = 0.55f;
+    private const float TemplateMinPrimaryRunRatio = 0.07f;
+    private const float TemplateMinPrimaryColumnHeightRatio = 0.35f;
     private const int TemplatePrimaryWeight = 3;
     private const int TemplateSecondaryWeight = 1;
     private const int TemplateMaxCandidatesPerBand = 4;
@@ -308,9 +311,9 @@ internal sealed class ColorRectangleDetector : IDetector
                 continue;
             }
 
-            int previous = x > 0 ? windowScoreBuffer[x - 1] : -1;
-            int next = x < maxWindowX ? windowScoreBuffer[x + 1] : -1;
-            if (pixels >= previous && pixels >= next)
+            int previous = x > 0 ? primaryWindowScoreBuffer[x - 1] : -1;
+            int next = x < maxWindowX ? primaryWindowScoreBuffer[x + 1] : -1;
+            if (primaryPixels >= previous && primaryPixels >= next && IsTemplateShapeCandidate(mask, width, top, bottom, x, templateWidth))
             {
                 candidates.Add((x, pixels, primaryPixels));
             }
@@ -331,6 +334,60 @@ internal sealed class ColorRectangleDetector : IDetector
             RectangleF box = new(sourceOffset.X + x, sourceOffset.Y + top, templateWidth, bandHeight);
             detections.Add(new DetectionResult(box, score, 0, "ColorTemplate"));
         }
+    }
+
+    private static bool IsTemplateShapeCandidate(byte[] mask, int width, int top, int bottom, int left, int templateWidth)
+    {
+        int bandHeight = bottom - top + 1;
+        int minRowPrimaryPixels = Math.Max(2, (int)MathF.Ceiling(templateWidth * TemplateMinPrimaryRowCoverageRatio));
+        int activeRows = 0;
+        int minColumnHeight = Math.Max(1, (int)MathF.Ceiling(bandHeight * TemplateMinPrimaryColumnHeightRatio));
+        int longestRun = 0;
+        int currentRun = 0;
+
+        for (int x = left; x < left + templateWidth; x++)
+        {
+            int columnPrimaryPixels = 0;
+            for (int y = top; y <= bottom; y++)
+            {
+                if (mask[(y * width) + x] == (byte)ColorKind.Primary)
+                {
+                    columnPrimaryPixels++;
+                }
+            }
+
+            if (columnPrimaryPixels >= minColumnHeight)
+            {
+                currentRun++;
+                longestRun = Math.Max(longestRun, currentRun);
+            }
+            else
+            {
+                currentRun = 0;
+            }
+        }
+
+        for (int y = top; y <= bottom; y++)
+        {
+            int rowOffset = y * width;
+            int rowPrimaryPixels = 0;
+            for (int x = left; x < left + templateWidth; x++)
+            {
+                if (mask[rowOffset + x] == (byte)ColorKind.Primary)
+                {
+                    rowPrimaryPixels++;
+                }
+            }
+
+            if (rowPrimaryPixels >= minRowPrimaryPixels)
+            {
+                activeRows++;
+            }
+        }
+
+        int minActiveRows = Math.Max(TemplateMinHeightPixels, (int)MathF.Ceiling(bandHeight * TemplateMinActiveRowRatio));
+        int minPrimaryRun = Math.Max(8, (int)MathF.Ceiling(templateWidth * TemplateMinPrimaryRunRatio));
+        return activeRows >= minActiveRows && longestRun >= minPrimaryRun;
     }
 
     private (int Top, int Bottom) ClampTemplateBandToBestRows(int bandTop, int bandBottom)
