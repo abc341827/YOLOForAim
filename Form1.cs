@@ -642,7 +642,24 @@ namespace YOLOForAim
 
         private void ApplyScreenColorAtCursor(bool isSecondaryColor)
         {
-            Color color = GetScreenColorAtCursor();
+            string colorSource;
+            Color color;
+            if (TryGetCapturedFrameColorAtCursor(out Color capturedColor))
+            {
+                color = capturedColor;
+                colorSource = "检测帧";
+            }
+            else if (TryGetDesktopDuplicationColorAtCursor(out Color duplicatedColor))
+            {
+                color = duplicatedColor;
+                colorSource = "Desktop Duplication";
+            }
+            else
+            {
+                color = GetScreenColorAtCursor();
+                colorSource = "GDI 截屏";
+            }
+
             (float hue, int saturation, int value) = RgbToHsv(color.R, color.G, color.B);
             ColorDetectionOptions pickedOptions = isSecondaryColor
                 ? new ColorDetectionOptions(hue, saturation, value, 0f, 0, 0, color.R, color.G, color.B)
@@ -663,10 +680,74 @@ namespace YOLOForAim
                 UpdateDiagnosticsText();
             }
 
-            string pickedColorText = $"{(isSecondaryColor ? "副色" : "主色")} HEX #{color.R:X2}{color.G:X2}{color.B:X2} | RGB({color.R}, {color.G}, {color.B}) | HSV(H={hue:F1}, S={saturation}, V={value}) | 严格 RGB 等值匹配";
+            string pickedColorText = $"{(isSecondaryColor ? "副色" : "主色")} HEX #{color.R:X2}{color.G:X2}{color.B:X2} | RGB({color.R}, {color.G}, {color.B}) | HSV(H={hue:F1}, S={saturation}, V={value}) | 来源={colorSource} | 严格 RGB 等值匹配";
             txtPickedColor.Text = pickedColorText;
             lblStatus.Text = $"已取色: {pickedColorText}";
             SaveUiSettings();
+        }
+
+        private bool TryGetCapturedFrameColorAtCursor(out Color color)
+        {
+            color = Color.Empty;
+            Point cursorPosition = Cursor.Position;
+            lock (latestFrameLock)
+            {
+                if (latestCapturedFrame is null || !latestCapturedFrame.ScreenBounds.Contains(cursorPosition))
+                {
+                    return false;
+                }
+
+                int x = cursorPosition.X - latestCapturedFrame.ScreenBounds.Left;
+                int y = cursorPosition.Y - latestCapturedFrame.ScreenBounds.Top;
+                if ((uint)x >= (uint)latestCapturedFrame.Width || (uint)y >= (uint)latestCapturedFrame.Height)
+                {
+                    return false;
+                }
+
+                int pixelOffset = (y * latestCapturedFrame.Stride) + (x * 4);
+                byte b = latestCapturedFrame.Pixels[pixelOffset];
+                byte g = latestCapturedFrame.Pixels[pixelOffset + 1];
+                byte r = latestCapturedFrame.Pixels[pixelOffset + 2];
+                color = Color.FromArgb(r, g, b);
+                return true;
+            }
+        }
+
+        private bool TryGetDesktopDuplicationColorAtCursor(out Color color)
+        {
+            color = Color.Empty;
+            if (selectedHwnd == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            try
+            {
+                using var capture = new DesktopDuplicationCapture(selectedHwnd);
+                if (!capture.TryGetLatestFrame(100, false, 0, out CapturedPixelFrame frame))
+                {
+                    return false;
+                }
+
+                Point cursorPosition = Cursor.Position;
+                if (!frame.ScreenBounds.Contains(cursorPosition))
+                {
+                    return false;
+                }
+
+                int x = cursorPosition.X - frame.ScreenBounds.Left;
+                int y = cursorPosition.Y - frame.ScreenBounds.Top;
+                int pixelOffset = (y * frame.Stride) + (x * 4);
+                byte b = frame.Pixels[pixelOffset];
+                byte g = frame.Pixels[pixelOffset + 1];
+                byte r = frame.Pixels[pixelOffset + 2];
+                color = Color.FromArgb(r, g, b);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private void UpdatePickedColorText(string prefix)
