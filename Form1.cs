@@ -47,6 +47,7 @@ namespace YOLOForAim
         private const float OverlayTrackMinIou = 0.18f;
         private const float OverlayTrackPositionBlend = 0.9f;
         private const float OverlayTrackSizeBlend = 0.8f;
+        private const float OverlayTrackJitterDeadzonePixels = 4f;
         private const float OverlayTrackPredictionLeadSeconds = 0.018f;
         private const float OverlayTrackMaxPredictionSeconds = 0.06f;
         private const float OverlayTrackMaxPredictionPixels = 48f;
@@ -895,47 +896,13 @@ namespace YOLOForAim
 
         private IReadOnlyList<DetectionResult> BuildOverlayDetections(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, int processedFrameVersion, long capturedTick)
         {
+            _ = captureBounds;
             if (processedFrameVersion <= suppressOverlayFrameVersion)
             {
                 return Array.Empty<DetectionResult>();
             }
 
-            IReadOnlyList<DetectionResult> trackedDetections = TrackOverlayDetections(detections, capturedTick);
-
-            if (trackedDetections.Count == 0 || stabilizedLockedDetection is null)
-            {
-                return trackedDetections;
-            }
-
-            DetectionResult[] overlayDetections = trackedDetections.ToArray();
-            PointF stabilizedTargetPoint = GetAimPoint(captureBounds, stabilizedLockedDetection);
-            int replaceIndex = -1;
-            double bestDistanceSquared = double.MaxValue;
-
-            for (int index = 0; index < overlayDetections.Length; index++)
-            {
-                DetectionResult detection = overlayDetections[index];
-                if (detection.ClassId != stabilizedLockedDetection.ClassId)
-                {
-                    continue;
-                }
-
-                PointF targetPoint = GetAimPoint(captureBounds, detection);
-                double distanceSquared = GetDistanceSquared(stabilizedTargetPoint, targetPoint);
-                if (distanceSquared < bestDistanceSquared)
-                {
-                    bestDistanceSquared = distanceSquared;
-                    replaceIndex = index;
-                }
-            }
-
-            if (replaceIndex >= 0 && bestDistanceSquared <= (currentAimLockSwitchDistancePixels * currentAimLockSwitchDistancePixels))
-            {
-                overlayDetections[replaceIndex] = stabilizedLockedDetection;
-                return overlayDetections;
-            }
-
-            return trackedDetections;
+            return TrackOverlayDetections(detections, capturedTick);
         }
 
         private IReadOnlyList<DetectionResult> TrackOverlayDetections(IReadOnlyList<DetectionResult> detections, long capturedTick)
@@ -1014,6 +981,15 @@ namespace YOLOForAim
         {
             PointF previousCenter = GetBoxCenter(previousDetection.Box);
             PointF currentCenter = GetBoxCenter(currentDetection.Box);
+            if (GetDistanceSquared(previousCenter, currentCenter) <= OverlayTrackJitterDeadzonePixels * OverlayTrackJitterDeadzonePixels)
+            {
+                return currentDetection with
+                {
+                    Box = previousDetection.Box,
+                    Score = Math.Max(previousDetection.Score, currentDetection.Score)
+                };
+            }
+
             PointF trackedCenter = LerpPoint(previousCenter, currentCenter, positionBlend);
             PointF velocity = new(
                 (currentCenter.X - previousCenter.X) / Math.Max(0.001f, deltaSeconds),
