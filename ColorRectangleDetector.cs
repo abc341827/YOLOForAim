@@ -33,12 +33,12 @@ internal sealed class ColorRectangleDetector : IDetector
     private const float PrimaryHueToleranceCap = 6f;
     private const int PrimarySaturationToleranceCap = 32;
     private const int PrimaryValueToleranceCap = 42;
-    private const int AnchorMinWidthPixels = 2;
-    private const int AnchorMinHeightPixels = 2;
+    private const int AnchorMinWidthPixels = 1;
+    private const int AnchorMinHeightPixels = 1;
     private const int AnchorMaxWidthPixels = 24;
     private const int AnchorMaxHeightPixels = 24;
     private const int AnchorOutputHeightPixels = 15;
-    private const int AnchorMinAreaPixels = 4;
+    private const int AnchorMinAreaPixels = 1;
     private const float AnchorMinFillRatio = 0.55f;
     private const float AnchorMinAspectRatio = 0.45f;
     private const float AnchorMaxAspectRatio = 2.2f;
@@ -255,8 +255,7 @@ internal sealed class ColorRectangleDetector : IDetector
             return null;
         }
 
-        float sizeScore = Math.Clamp(component.Area / 16f, 0f, 1f);
-        float score = Math.Clamp(0.7f + (fillRatio * 0.2f) + (sizeScore * 0.1f), 0f, 1f);
+        float score = 1f;
         if (score < scoreThreshold)
         {
             return null;
