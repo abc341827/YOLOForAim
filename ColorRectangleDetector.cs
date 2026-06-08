@@ -33,6 +33,9 @@ internal sealed class ColorRectangleDetector : IDetector
     private const float PrimaryHueToleranceCap = 6f;
     private const int PrimarySaturationToleranceCap = 32;
     private const int PrimaryValueToleranceCap = 42;
+    private const byte FixedTargetRed = 0xFF;
+    private const byte FixedTargetGreen = 0xA4;
+    private const byte FixedTargetBlue = 0x51;
     private const int AnchorMinWidthPixels = 1;
     private const int AnchorMinHeightPixels = 1;
     private const int AnchorMaxWidthPixels = 24;
@@ -60,7 +63,7 @@ internal sealed class ColorRectangleDetector : IDetector
         {
             ColorDetectionOptions primary = primaryColorOptions;
             ColorDetectionOptions secondary = secondaryColorOptions;
-            return $"颜色检测: 主色 RGB({primary.Red}, {primary.Green}, {primary.Blue})，副色 RGB({secondary.Red}, {secondary.Green}, {secondary.Blue})；当前使用主色严格 RGB 等值锚点检测。";
+            return $"颜色检测: 固定色 #FFA451 / RGB({FixedTargetRed}, {FixedTargetGreen}, {FixedTargetBlue})；命中后按固定矩形输出并跳过该矩形区域。";
         }
     }
 
@@ -536,19 +539,8 @@ internal sealed class ColorRectangleDetector : IDetector
 
     private static bool IsPrimaryColorPixel(byte r, byte g, byte b, ColorDetectionOptions options)
     {
-        if (options.Red >= 0 && options.Green >= 0 && options.Blue >= 0)
-        {
-            return r == options.Red && g == options.Green && b == options.Blue;
-        }
-
-        ColorDetectionOptions strictOptions = options with
-        {
-            HueTolerance = 0f,
-            SaturationTolerance = 0,
-            ValueTolerance = 0
-        };
-
-        return IsTargetColorPixel(r, g, b, strictOptions);
+        _ = options;
+        return r == FixedTargetRed && g == FixedTargetGreen && b == FixedTargetBlue;
     }
 
     private static bool IsTargetColorPixel(byte r, byte g, byte b, ColorDetectionOptions options)
