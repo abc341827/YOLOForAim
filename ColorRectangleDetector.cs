@@ -195,7 +195,6 @@ internal sealed class ColorRectangleDetector : IDetector
         int width = region.Width;
         int height = region.Height;
         int outputWidth = Math.Clamp((int)MathF.Round(referenceWidth / DetectionBoxWidthWindowDivisor), MinBoxWidth, width);
-        EnsureComponentStack(width * height);
 
         var detections = new List<DetectionResult>();
         for (int y = 0; y < height; y++)
@@ -209,8 +208,7 @@ internal sealed class ColorRectangleDetector : IDetector
                     continue;
                 }
 
-                ComponentBox component = FloodFill(mask, width, height, startIndex, componentStackBuffer);
-                DetectionResult? detection = CreateAnchorDetection(component, region.Location, width, height, outputWidth);
+                DetectionResult? detection = CreateAnchorDetection(x, y, region.Location, outputWidth);
                 if (detection is null)
                 {
                     continue;
@@ -218,7 +216,7 @@ internal sealed class ColorRectangleDetector : IDetector
 
                 detections.Add(detection);
                 Rectangle consumedRegion = Rectangle.Intersect(
-                    new Rectangle(component.MinX, component.MinY, (int)MathF.Round(detection.Box.Width), (int)MathF.Round(detection.Box.Height)),
+                    new Rectangle(x, y, (int)MathF.Round(detection.Box.Width), (int)MathF.Round(detection.Box.Height)),
                     new Rectangle(0, 0, width, height));
                 ClearMaskRegion(mask, width, consumedRegion);
             }
@@ -227,14 +225,8 @@ internal sealed class ColorRectangleDetector : IDetector
         return detections;
     }
 
-    private DetectionResult? CreateAnchorDetection(ComponentBox component, Point sourceOffset, int regionWidth, int regionHeight, int outputWidth)
+    private DetectionResult? CreateAnchorDetection(int anchorX, int anchorY, Point sourceOffset, int outputWidth)
     {
-        Rectangle anchorBounds = component.Bounds;
-        if (component.Area <= 0)
-        {
-            return null;
-        }
-
         int boxWidth = outputWidth;
         int boxHeight = AnchorOutputHeightPixels;
         if (boxWidth < MinBoxWidth || boxHeight < MinBoxHeight)
@@ -248,7 +240,7 @@ internal sealed class ColorRectangleDetector : IDetector
             return null;
         }
 
-        RectangleF box = new(sourceOffset.X + anchorBounds.Left, sourceOffset.Y + anchorBounds.Top, boxWidth, boxHeight);
+        RectangleF box = new(sourceOffset.X + anchorX, sourceOffset.Y + anchorY, boxWidth, boxHeight);
         return new DetectionResult(box, score, 0, "ColorAnchor");
     }
 
