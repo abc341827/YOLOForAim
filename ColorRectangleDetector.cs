@@ -33,6 +33,15 @@ internal sealed class ColorRectangleDetector : IDetector
     private const float PrimaryHueToleranceCap = 6f;
     private const int PrimarySaturationToleranceCap = 32;
     private const int PrimaryValueToleranceCap = 42;
+    private const int AnchorMinWidthPixels = 2;
+    private const int AnchorMinHeightPixels = 2;
+    private const int AnchorMaxWidthPixels = 24;
+    private const int AnchorMaxHeightPixels = 24;
+    private const int AnchorOutputHeightPixels = 15;
+    private const int AnchorMinAreaPixels = 4;
+    private const float AnchorMinFillRatio = 0.55f;
+    private const float AnchorMinAspectRatio = 0.45f;
+    private const float AnchorMaxAspectRatio = 2.2f;
 
     private readonly float scoreThreshold;
     private ColorDetectionOptions primaryColorOptions;
@@ -51,7 +60,7 @@ internal sealed class ColorRectangleDetector : IDetector
         {
             ColorDetectionOptions primary = primaryColorOptions;
             ColorDetectionOptions secondary = secondaryColorOptions;
-            return $"颜色检测: 主色 HSV(H={primary.Hue:F1}, S={primary.Saturation}, V={primary.Value})，副色 HSV(H={secondary.Hue:F1}, S={secondary.Saturation}, V={secondary.Value})；支持主色横向矩形或主色+副色水平相邻矩形。";
+            return $"颜色检测: 主色 RGB({primary.Red}, {primary.Green}, {primary.Blue})，副色 RGB({secondary.Red}, {secondary.Green}, {secondary.Blue})；当前使用主色严格 RGB 等值锚点检测。";
         }
     }
 
@@ -76,9 +85,8 @@ internal sealed class ColorRectangleDetector : IDetector
         ColorDetectionOptions primary = primaryColorOptions;
         ColorDetectionOptions secondary = secondaryColorOptions;
         byte[] mask = BuildColorMask(sourcePixels, sourceStride, region, primary, secondary);
-        CloseHorizontalMaskGaps(mask, regionWidth, regionHeight, HorizontalCloseGapPixels);
-        IReadOnlyList<DetectionResult> templateDetections = DetectFixedWidthTemplates(mask, region, Math.Max(sourceWidth, referenceWidth));
-        return new DetectionRunResult(templateDetections);
+        IReadOnlyList<DetectionResult> anchorDetections = DetectPrimaryAnchorBlocks(mask, region, Math.Max(sourceWidth, referenceWidth));
+        return new DetectionRunResult(anchorDetections);
     }
 
     public void Dispose()
@@ -176,6 +184,106 @@ internal sealed class ColorRectangleDetector : IDetector
             {
                 mask[index] = (byte)kind;
             }
+        }
+    }
+
+    private IReadOnlyList<DetectionResult> DetectPrimaryAnchorBlocks(byte[] mask, Rectangle region, int referenceWidth)
+    {
+        int width = region.Width;
+        int height = region.Height;
+        int outputWidth = Math.Clamp((int)MathF.Round(referenceWidth / DetectionBoxWidthWindowDivisor), MinBoxWidth, width);
+        EnsureComponentStack(width * height);
+
+        var detections = new List<DetectionResult>();
+        for (int y = 0; y < height; y++)
+        {
+            int rowOffset = y * width;
+            for (int x = 0; x < width; x++)
+            {
+                int startIndex = rowOffset + x;
+                if (mask[startIndex] != (byte)ColorKind.Primary)
+                {
+                    continue;
+                }
+
+                ComponentBox component = FloodFill(mask, width, height, startIndex, componentStackBuffer);
+                DetectionResult? detection = CreateAnchorDetection(component, region.Location, width, height, outputWidth);
+                if (detection is null)
+                {
+                    continue;
+                }
+
+                detections.Add(detection);
+                Rectangle consumedRegion = Rectangle.Intersect(
+                    new Rectangle(component.MinX, component.MinY, (int)MathF.Round(detection.Box.Width), (int)MathF.Round(detection.Box.Height)),
+                    new Rectangle(0, 0, width, height));
+                ClearMaskRegion(mask, width, consumedRegion);
+            }
+        }
+
+        return detections;
+    }
+
+    private DetectionResult? CreateAnchorDetection(ComponentBox component, Point sourceOffset, int regionWidth, int regionHeight, int outputWidth)
+    {
+        Rectangle anchorBounds = component.Bounds;
+        if (anchorBounds.Width < AnchorMinWidthPixels ||
+            anchorBounds.Height < AnchorMinHeightPixels ||
+            anchorBounds.Width > AnchorMaxWidthPixels ||
+            anchorBounds.Height > AnchorMaxHeightPixels ||
+            component.Area < AnchorMinAreaPixels)
+        {
+            return null;
+        }
+
+        float aspectRatio = anchorBounds.Width / (float)Math.Max(1, anchorBounds.Height);
+        if (aspectRatio < AnchorMinAspectRatio || aspectRatio > AnchorMaxAspectRatio)
+        {
+            return null;
+        }
+
+        float fillRatio = component.Area / (float)(anchorBounds.Width * anchorBounds.Height);
+        if (fillRatio < AnchorMinFillRatio)
+        {
+            return null;
+        }
+
+        int boxWidth = Math.Min(outputWidth, regionWidth - anchorBounds.Left);
+        int boxHeight = Math.Min(AnchorOutputHeightPixels, regionHeight - anchorBounds.Top);
+        if (boxWidth < MinBoxWidth || boxHeight < MinBoxHeight)
+        {
+            return null;
+        }
+
+        float sizeScore = Math.Clamp(component.Area / 16f, 0f, 1f);
+        float score = Math.Clamp(0.7f + (fillRatio * 0.2f) + (sizeScore * 0.1f), 0f, 1f);
+        if (score < scoreThreshold)
+        {
+            return null;
+        }
+
+        RectangleF box = new(sourceOffset.X + anchorBounds.Left, sourceOffset.Y + anchorBounds.Top, boxWidth, boxHeight);
+        return new DetectionResult(box, score, 0, "ColorAnchor");
+    }
+
+    private static void ClearMaskRegion(byte[] mask, int width, Rectangle region)
+    {
+        if (region.Width <= 0 || region.Height <= 0)
+        {
+            return;
+        }
+
+        for (int y = region.Top; y < region.Bottom; y++)
+        {
+            Array.Clear(mask, (y * width) + region.Left, region.Width);
+        }
+    }
+
+    private void EnsureComponentStack(int requiredLength)
+    {
+        if (componentStackBuffer.Length < requiredLength)
+        {
+            componentStackBuffer = new int[requiredLength];
         }
     }
 
@@ -429,11 +537,16 @@ internal sealed class ColorRectangleDetector : IDetector
 
     private static bool IsPrimaryColorPixel(byte r, byte g, byte b, ColorDetectionOptions options)
     {
+        if (options.Red >= 0 && options.Green >= 0 && options.Blue >= 0)
+        {
+            return r == options.Red && g == options.Green && b == options.Blue;
+        }
+
         ColorDetectionOptions strictOptions = options with
         {
-            HueTolerance = Math.Min(options.HueTolerance, PrimaryHueToleranceCap),
-            SaturationTolerance = Math.Min(options.SaturationTolerance, PrimarySaturationToleranceCap),
-            ValueTolerance = Math.Min(options.ValueTolerance, PrimaryValueToleranceCap)
+            HueTolerance = 0f,
+            SaturationTolerance = 0,
+            ValueTolerance = 0
         };
 
         return IsTargetColorPixel(r, g, b, strictOptions);

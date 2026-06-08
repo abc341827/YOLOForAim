@@ -645,8 +645,8 @@ namespace YOLOForAim
             Color color = GetScreenColorAtCursor();
             (float hue, int saturation, int value) = RgbToHsv(color.R, color.G, color.B);
             ColorDetectionOptions pickedOptions = isSecondaryColor
-                ? new ColorDetectionOptions(hue, saturation, value, 15f, 55, 70)
-                : new ColorDetectionOptions(hue, saturation, value, 6f, 32, 42);
+                ? new ColorDetectionOptions(hue, saturation, value, 0f, 0, 0, color.R, color.G, color.B)
+                : new ColorDetectionOptions(hue, saturation, value, 0f, 0, 0, color.R, color.G, color.B);
             if (isSecondaryColor)
             {
                 currentSecondaryColorDetectionOptions = pickedOptions;
@@ -663,7 +663,7 @@ namespace YOLOForAim
                 UpdateDiagnosticsText();
             }
 
-            string pickedColorText = $"{(isSecondaryColor ? "副色" : "主色")} HEX #{color.R:X2}{color.G:X2}{color.B:X2} | RGB({color.R}, {color.G}, {color.B}) | HSV(H={hue:F1}, S={saturation}, V={value}) | 已应用到颜色检测";
+            string pickedColorText = $"{(isSecondaryColor ? "副色" : "主色")} HEX #{color.R:X2}{color.G:X2}{color.B:X2} | RGB({color.R}, {color.G}, {color.B}) | HSV(H={hue:F1}, S={saturation}, V={value}) | 严格 RGB 等值匹配";
             txtPickedColor.Text = pickedColorText;
             lblStatus.Text = $"已取色: {pickedColorText}";
             SaveUiSettings();
@@ -671,7 +671,7 @@ namespace YOLOForAim
 
         private void UpdatePickedColorText(string prefix)
         {
-            txtPickedColor.Text = $"{prefix}: 主色 HSV(H={currentPrimaryColorDetectionOptions.Hue:F1}, S={currentPrimaryColorDetectionOptions.Saturation}, V={currentPrimaryColorDetectionOptions.Value}) | 副色 HSV(H={currentSecondaryColorDetectionOptions.Hue:F1}, S={currentSecondaryColorDetectionOptions.Saturation}, V={currentSecondaryColorDetectionOptions.Value})";
+            txtPickedColor.Text = $"{prefix}: 主色 RGB({currentPrimaryColorDetectionOptions.Red}, {currentPrimaryColorDetectionOptions.Green}, {currentPrimaryColorDetectionOptions.Blue}) | 副色 RGB({currentSecondaryColorDetectionOptions.Red}, {currentSecondaryColorDetectionOptions.Green}, {currentSecondaryColorDetectionOptions.Blue}) | 严格 RGB 等值匹配";
         }
 
         private void UpdateInferenceBackendUi()
