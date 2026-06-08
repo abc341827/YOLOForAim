@@ -230,29 +230,13 @@ internal sealed class ColorRectangleDetector : IDetector
     private DetectionResult? CreateAnchorDetection(ComponentBox component, Point sourceOffset, int regionWidth, int regionHeight, int outputWidth)
     {
         Rectangle anchorBounds = component.Bounds;
-        if (anchorBounds.Width < AnchorMinWidthPixels ||
-            anchorBounds.Height < AnchorMinHeightPixels ||
-            anchorBounds.Width > AnchorMaxWidthPixels ||
-            anchorBounds.Height > AnchorMaxHeightPixels ||
-            component.Area < AnchorMinAreaPixels)
+        if (component.Area <= 0)
         {
             return null;
         }
 
-        float aspectRatio = anchorBounds.Width / (float)Math.Max(1, anchorBounds.Height);
-        if (aspectRatio < AnchorMinAspectRatio || aspectRatio > AnchorMaxAspectRatio)
-        {
-            return null;
-        }
-
-        float fillRatio = component.Area / (float)(anchorBounds.Width * anchorBounds.Height);
-        if (fillRatio < AnchorMinFillRatio)
-        {
-            return null;
-        }
-
-        int boxWidth = Math.Min(outputWidth, regionWidth - anchorBounds.Left);
-        int boxHeight = Math.Min(AnchorOutputHeightPixels, regionHeight - anchorBounds.Top);
+        int boxWidth = outputWidth;
+        int boxHeight = AnchorOutputHeightPixels;
         if (boxWidth < MinBoxWidth || boxHeight < MinBoxHeight)
         {
             return null;
