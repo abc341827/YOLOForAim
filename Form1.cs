@@ -1496,11 +1496,11 @@ namespace YOLOForAim
         {
             _ = effectiveHeight;
             float horizontalOffset = IsColorPixelDetection(detection)
-                ? SystemInformation.VirtualScreen.Width / ColorPixelAimHorizontalOffsetScreenDivisor
+                ? captureBounds.Width / ColorPixelAimHorizontalOffsetScreenDivisor
                 : 0f;
 
             return new PointF(
-                captureBounds.Left + detection.Box.X + (detection.Box.Width / 2f) + horizontalOffset,
+                captureBounds.Left + detection.Box.X + horizontalOffset,
                 captureBounds.Top + detection.Box.Bottom + currentAimPointBelowOffsetPixels);
         }
 
