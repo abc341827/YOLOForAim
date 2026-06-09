@@ -106,6 +106,7 @@ namespace YOLOForAim
         private float currentAimTrackedAcquireDistancePixels;
         private float currentAimStopLockSquareSizePixels;
         private float currentAimStopLockTopOffsetPixels;
+        private int currentTargetWindowWidth;
         private PointF? lockedTargetScreenPoint;
         private PointF? smoothedTargetScreenPoint;
         private PointF? previousAimObservedTargetPoint;
@@ -516,6 +517,7 @@ namespace YOLOForAim
                             sourceRegion,
                             frameToProcess.ReferenceWidth) ?? new DetectionRunResult(Array.Empty<DetectionResult>());
                         detectStopwatch.Stop();
+                        currentTargetWindowWidth = Math.Max(frameToProcess.ReferenceWidth, frameToProcess.Width);
                         TryMoveMouseToNearestDetection(result.Detections, frameToProcess.ScreenBounds, processedVersion, frameToProcess.CapturedTick);
                         UpdateOverlayState(frameToProcess.ScreenBounds, BuildOverlayDetections(result.Detections, frameToProcess.ScreenBounds, processedVersion, frameToProcess.CapturedTick));
                         processedFrameCounter++;
@@ -1182,6 +1184,7 @@ namespace YOLOForAim
             suppressOverlayFrameVersion = -1;
             suspendAimUntilFrameVersion = -1;
             suspendAimUntilTick = 0;
+            currentTargetWindowWidth = 0;
         }
 
         private void ResetAimTrackingState()
@@ -1496,7 +1499,7 @@ namespace YOLOForAim
         {
             _ = effectiveHeight;
             float horizontalOffset = IsColorPixelDetection(detection)
-                ? captureBounds.Width / ColorPixelAimHorizontalOffsetScreenDivisor
+                ? Math.Max(currentTargetWindowWidth, captureBounds.Width) / ColorPixelAimHorizontalOffsetScreenDivisor
                 : 0f;
 
             return new PointF(
