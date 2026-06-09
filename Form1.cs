@@ -126,7 +126,6 @@ namespace YOLOForAim
         private int suspendAimUntilFrameVersion = -1;
         private long suspendAimUntilTick;
         private ColorDetectionOptions currentPrimaryColorDetectionOptions = ColorDetectionOptions.Default;
-        private ColorDetectionOptions currentSecondaryColorDetectionOptions = ColorDetectionOptions.DefaultSecondary;
 
         public Form1()
         {
@@ -237,8 +236,7 @@ namespace YOLOForAim
                     chkPreferGpu.Checked,
                     (float)numScoreThreshold.Value / 100f,
                     tensorRtEnginePath,
-                    currentPrimaryColorDetectionOptions,
-                    currentSecondaryColorDetectionOptions);
+                    currentPrimaryColorDetectionOptions);
 
                 detector = selectedBackend switch
                 {
@@ -603,22 +601,15 @@ namespace YOLOForAim
 
         private async void btnPickScreenColor_Click(object? sender, EventArgs e)
         {
-            await PickScreenColorAsync(isSecondaryColor: false);
+            await PickScreenColorAsync();
         }
 
-        private async void btnPickSecondaryScreenColor_Click(object? sender, EventArgs e)
-        {
-            await PickScreenColorAsync(isSecondaryColor: true);
-        }
-
-        private async Task PickScreenColorAsync(bool isSecondaryColor)
+        private async Task PickScreenColorAsync()
         {
             btnPickScreenColor.Enabled = false;
-            btnPickSecondaryScreenColor.Enabled = false;
-            Button activeButton = isSecondaryColor ? btnPickSecondaryScreenColor : btnPickScreenColor;
-            string originalText = activeButton.Text;
-            activeButton.Text = "准备取色...";
-            lblStatus.Text = $"请在 {PickScreenColorDelayMs / 1000d:F1} 秒内把鼠标移动到{(isSecondaryColor ? "副色" : "主色")}目标上。";
+            string originalText = btnPickScreenColor.Text;
+            btnPickScreenColor.Text = "准备取色...";
+            lblStatus.Text = $"请在 {PickScreenColorDelayMs / 1000d:F1} 秒内把鼠标移动到目标像素上。";
 
             try
             {
@@ -628,20 +619,19 @@ namespace YOLOForAim
                     return;
                 }
 
-                ApplyScreenColorAtCursor(isSecondaryColor);
+                ApplyScreenColorAtCursor();
             }
             finally
             {
                 if (!IsDisposed)
                 {
                     btnPickScreenColor.Enabled = true;
-                    btnPickSecondaryScreenColor.Enabled = true;
-                    activeButton.Text = originalText;
+                    btnPickScreenColor.Text = originalText;
                 }
             }
         }
 
-        private void ApplyScreenColorAtCursor(bool isSecondaryColor)
+        private void ApplyScreenColorAtCursor()
         {
             string colorSource;
             Color color;
@@ -662,26 +652,16 @@ namespace YOLOForAim
             }
 
             (float hue, int saturation, int value) = RgbToHsv(color.R, color.G, color.B);
-            ColorDetectionOptions pickedOptions = isSecondaryColor
-                ? new ColorDetectionOptions(hue, saturation, value, 0f, 0, 0, color.R, color.G, color.B)
-                : new ColorDetectionOptions(hue, saturation, value, 0f, 0, 0, color.R, color.G, color.B);
-            if (isSecondaryColor)
-            {
-                currentSecondaryColorDetectionOptions = pickedOptions;
-            }
-            else
-            {
-                currentPrimaryColorDetectionOptions = pickedOptions;
-            }
+            currentPrimaryColorDetectionOptions = new ColorDetectionOptions(hue, saturation, value, 0f, 0, 0, color.R, color.G, color.B);
 
             if (detector is ColorRectangleDetector colorRectangleDetector)
             {
-                colorRectangleDetector.UpdateColorDetectionOptions(currentPrimaryColorDetectionOptions, currentSecondaryColorDetectionOptions);
+                colorRectangleDetector.UpdateColorDetectionOptions(currentPrimaryColorDetectionOptions);
                 diagnosticsHeader = colorRectangleDetector.ModelSummary;
                 UpdateDiagnosticsText();
             }
 
-            string pickedColorText = $"{(isSecondaryColor ? "副色" : "主色")} HEX #{color.R:X2}{color.G:X2}{color.B:X2} | RGB({color.R}, {color.G}, {color.B}) | HSV(H={hue:F1}, S={saturation}, V={value}) | 来源={colorSource} | 严格 RGB 等值匹配";
+            string pickedColorText = $"目标色 HEX #{color.R:X2}{color.G:X2}{color.B:X2} | RGB({color.R}, {color.G}, {color.B}) | HSV(H={hue:F1}, S={saturation}, V={value}) | 来源={colorSource} | 严格 RGB 等值匹配";
             txtPickedColor.Text = pickedColorText;
             lblStatus.Text = $"已取色: {pickedColorText}";
             SaveUiSettings();
@@ -753,7 +733,7 @@ namespace YOLOForAim
 
         private void UpdatePickedColorText(string prefix)
         {
-            txtPickedColor.Text = $"{prefix}: 主色 RGB({currentPrimaryColorDetectionOptions.Red}, {currentPrimaryColorDetectionOptions.Green}, {currentPrimaryColorDetectionOptions.Blue}) | 副色 RGB({currentSecondaryColorDetectionOptions.Red}, {currentSecondaryColorDetectionOptions.Green}, {currentSecondaryColorDetectionOptions.Blue}) | 严格 RGB 等值匹配";
+            txtPickedColor.Text = $"{prefix}: RGB({currentPrimaryColorDetectionOptions.Red}, {currentPrimaryColorDetectionOptions.Green}, {currentPrimaryColorDetectionOptions.Blue}) | 严格 RGB 等值匹配";
         }
 
         private void UpdateInferenceBackendUi()
@@ -774,7 +754,7 @@ namespace YOLOForAim
                 lblStatus.Text = selectedBackend switch
                 {
                     DetectorBackend.TensorRtEngine => $"TensorRT Engine 待命: engine={(enginePath is null ? "(未找到)" : Path.GetFileName(enginePath))}",
-                    DetectorBackend.ColorRectangle => $"颜色检测待命: 主色 HSV(H={currentPrimaryColorDetectionOptions.Hue:F1}, S={currentPrimaryColorDetectionOptions.Saturation}, V={currentPrimaryColorDetectionOptions.Value}) + 副色 HSV(H={currentSecondaryColorDetectionOptions.Hue:F1}, S={currentSecondaryColorDetectionOptions.Saturation}, V={currentSecondaryColorDetectionOptions.Value})",
+                    DetectorBackend.ColorRectangle => $"颜色检测待命: RGB({currentPrimaryColorDetectionOptions.Red}, {currentPrimaryColorDetectionOptions.Green}, {currentPrimaryColorDetectionOptions.Blue}) 严格单像素匹配",
                     _ => $"DirectML 待命: ONNX={Path.GetFileName(modelPath)}"
                 };
             }
@@ -1736,7 +1716,6 @@ namespace YOLOForAim
                 SetNumericValue(numAimStopInsideBoxArea, settings.AimStopLockSquareSizePixels);
                 SetNumericValue(numAimStopBoxTopOffset, settings.AimStopLockTopOffsetPixels);
                 currentPrimaryColorDetectionOptions = settings.PrimaryColorDetection ?? ColorDetectionOptions.Default;
-                currentSecondaryColorDetectionOptions = settings.SecondaryColorDetection ?? ColorDetectionOptions.DefaultSecondary;
                 UpdatePickedColorText("已加载颜色检测色值");
                 UpdateInferenceBackendUi();
             }
@@ -1773,8 +1752,7 @@ namespace YOLOForAim
                     (int)numAimStopInsideBoxArea.Value,
                     (int)numAimStopBoxTopOffset.Value,
                     GetSelectedBackend().ToString(),
-                    currentPrimaryColorDetectionOptions,
-                    currentSecondaryColorDetectionOptions);
+                    currentPrimaryColorDetectionOptions);
 
                 string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(UiSettingsFilePath, json);
@@ -1898,8 +1876,7 @@ namespace YOLOForAim
             int AimStopLockSquareSizePixels = DefaultAimStopLockSquareSizePixels,
             int AimStopLockTopOffsetPixels = DefaultAimStopLockTopOffsetPixels,
             string InferenceBackend = nameof(DetectorBackend.OnnxRuntimeDirectMl),
-            ColorDetectionOptions? PrimaryColorDetection = null,
-            ColorDetectionOptions? SecondaryColorDetection = null);
+            ColorDetectionOptions? PrimaryColorDetection = null);
 
         private sealed record TargetCandidate(DetectionResult Detection, PointF TargetPoint, double DistanceSquared);
         #endregion
@@ -1929,9 +1906,6 @@ namespace YOLOForAim
             Cursor = Cursors.Cross;
             KeyPreview = true;
             mouseProc = MouseHookCallback;
-
-            selectionTimer = new System.Windows.Forms.Timer { Interval = 16 };
-            selectionTimer.Tick += SelectionTimer_Tick;
 
             Shown += OverlayForm_Shown;
             this.KeyDown += OverlayForm_KeyDown;

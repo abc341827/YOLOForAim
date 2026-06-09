@@ -82,7 +82,6 @@
             this.pictureBoxPreview = new System.Windows.Forms.PictureBox();
             this.txtDiagnostics = new System.Windows.Forms.TextBox();
             this.btnPickScreenColor = new System.Windows.Forms.Button();
-            this.btnPickSecondaryScreenColor = new System.Windows.Forms.Button();
             this.txtPickedColor = new System.Windows.Forms.TextBox();
             ((System.ComponentModel.ISupportInitialize)(this.numScoreThreshold)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numRoiSize)).BeginInit();
@@ -764,32 +763,21 @@
             // 
             this.btnPickScreenColor.Location = new System.Drawing.Point(190, 222);
             this.btnPickScreenColor.Name = "btnPickScreenColor";
-            this.btnPickScreenColor.Size = new System.Drawing.Size(86, 23);
+            this.btnPickScreenColor.Size = new System.Drawing.Size(100, 23);
             this.btnPickScreenColor.TabIndex = 45;
-            this.btnPickScreenColor.Text = "取主色";
-            this.toolTipDescriptions.SetToolTip(this.btnPickScreenColor, "点击后会等待 1.5 秒再读取当前鼠标所在屏幕像素，作为主色。主色可以单独构成横向矩形，也可以与副色水平相邻构成一个检测框。");
+            this.btnPickScreenColor.Text = "取目标色";
+            this.toolTipDescriptions.SetToolTip(this.btnPickScreenColor, "点击后会等待 1.5 秒再读取当前鼠标所在屏幕像素，作为严格 RGB 匹配的目标色。检测时从左上到右下取第一个完全匹配像素。");
             this.btnPickScreenColor.UseVisualStyleBackColor = true;
             this.btnPickScreenColor.Click += new System.EventHandler(this.btnPickScreenColor_Click);
             // 
-            // btnPickSecondaryScreenColor
-            // 
-            this.btnPickSecondaryScreenColor.Location = new System.Drawing.Point(282, 222);
-            this.btnPickSecondaryScreenColor.Name = "btnPickSecondaryScreenColor";
-            this.btnPickSecondaryScreenColor.Size = new System.Drawing.Size(86, 23);
-            this.btnPickSecondaryScreenColor.TabIndex = 47;
-            this.btnPickSecondaryScreenColor.Text = "取副色";
-            this.toolTipDescriptions.SetToolTip(this.btnPickSecondaryScreenColor, "点击后会等待 1.5 秒再读取当前鼠标所在屏幕像素，作为副色。用于识别主色+副色水平挨在一起的复合矩形。");
-            this.btnPickSecondaryScreenColor.UseVisualStyleBackColor = true;
-            this.btnPickSecondaryScreenColor.Click += new System.EventHandler(this.btnPickSecondaryScreenColor_Click);
-            // 
             // txtPickedColor
             // 
-            this.txtPickedColor.Location = new System.Drawing.Point(374, 222);
+            this.txtPickedColor.Location = new System.Drawing.Point(296, 222);
             this.txtPickedColor.Name = "txtPickedColor";
             this.txtPickedColor.ReadOnly = true;
-            this.txtPickedColor.Size = new System.Drawing.Size(414, 23);
+            this.txtPickedColor.Size = new System.Drawing.Size(492, 23);
             this.txtPickedColor.TabIndex = 46;
-            this.toolTipDescriptions.SetToolTip(this.txtPickedColor, "最近一次取到的主色或副色。HSV 中 H 为 0~360，S/V 为 0~255，和颜色检测代码中的阈值单位一致。");
+            this.toolTipDescriptions.SetToolTip(this.txtPickedColor, "最近一次取到的目标色。检测使用严格 RGB 等值匹配。");
             // 
             // lblParameterHint
             // 
@@ -870,7 +858,6 @@
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(800, 808);
             Controls.Add(this.txtPickedColor);
-            Controls.Add(this.btnPickSecondaryScreenColor);
             Controls.Add(this.btnPickScreenColor);
             Controls.Add(this.txtDiagnostics);
             Controls.Add(this.pictureBoxPreview);
@@ -1001,7 +988,6 @@
         private System.Windows.Forms.PictureBox pictureBoxPreview;
         private System.Windows.Forms.TextBox txtDiagnostics;
         private System.Windows.Forms.Button btnPickScreenColor;
-        private System.Windows.Forms.Button btnPickSecondaryScreenColor;
         private System.Windows.Forms.TextBox txtPickedColor;
         private System.Windows.Forms.ToolTip toolTipDescriptions;
 
