@@ -24,6 +24,7 @@ namespace YOLOForAim
         private const int DefaultAimTrackedAcquireDistancePixels = 90;
         private const int DefaultAimStopLockSquareSizePixels = 36;
         private const int DefaultAimStopLockTopOffsetPixels = 18;
+        private const float ColorPixelAimHorizontalOffsetScreenDivisor = 25.6f;
         private const int PickScreenColorDelayMs = 1500;
         private const float AimHeightHighConfidenceThreshold = 0.65f;
         private const float AimHeightHighConfidenceBlend = 0.45f;
@@ -1494,9 +1495,18 @@ namespace YOLOForAim
         private PointF GetAimPoint(Rectangle captureBounds, DetectionResult detection, float effectiveHeight)
         {
             _ = effectiveHeight;
+            float horizontalOffset = IsColorPixelDetection(detection)
+                ? SystemInformation.VirtualScreen.Width / ColorPixelAimHorizontalOffsetScreenDivisor
+                : 0f;
+
             return new PointF(
-                captureBounds.Left + detection.Box.X + (detection.Box.Width / 2f),
+                captureBounds.Left + detection.Box.X + (detection.Box.Width / 2f) + horizontalOffset,
                 captureBounds.Top + detection.Box.Bottom + currentAimPointBelowOffsetPixels);
+        }
+
+        private static bool IsColorPixelDetection(DetectionResult detection)
+        {
+            return string.Equals(detection.Label, "ColorPixel", StringComparison.Ordinal);
         }
 
         private static PointF GetAimReferencePoint(Rectangle captureBounds)
