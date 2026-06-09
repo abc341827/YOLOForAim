@@ -1906,6 +1906,8 @@ namespace YOLOForAim
             Cursor = Cursors.Cross;
             KeyPreview = true;
             mouseProc = MouseHookCallback;
+            selectionTimer = new System.Windows.Forms.Timer { Interval = 50 };
+            selectionTimer.Tick += SelectionTimer_Tick;
 
             Shown += OverlayForm_Shown;
             this.KeyDown += OverlayForm_KeyDown;
