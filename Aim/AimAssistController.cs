@@ -11,6 +11,11 @@ namespace YOLOForAim;
 /// </summary>
 internal sealed class AimAssistController
 {
+    private const float LockedTargetMatchMaxCenterDistancePixels = 90f;
+    private const float LockedTargetMatchMinIou = 0.08f;
+    private const float AdaptiveTrackingDistancePixels = 80f;
+    private const float MaxAdaptiveTrackingBlend = 0.85f;
+
     private readonly AimRuntimeState state = new();
     private readonly AimTargetSelector targetSelector = new();
     private readonly AimTargetStabilizer targetStabilizer;
@@ -83,7 +88,7 @@ internal sealed class AimAssistController
         state.LockedTargetScreenPoint = GetAimPoint(captureBounds, currentDetection, settings, targetWindowWidth);
         state.SmoothedTargetScreenPoint = state.SmoothedTargetScreenPoint is null || resetTargetTracking
             ? targetPoint
-            : LerpPoint(state.SmoothedTargetScreenPoint.Value, targetPoint, settings.TargetTrackingBlend);
+            : LerpPoint(state.SmoothedTargetScreenPoint.Value, targetPoint, GetAdaptiveTargetTrackingBlend(state.SmoothedTargetScreenPoint.Value, targetPoint, settings));
         targetPoint = state.SmoothedTargetScreenPoint.Value;
         missTracker.RegisterHit();
         state.PendingTargetSwitchTick = 0;
@@ -118,6 +123,15 @@ internal sealed class AimAssistController
 
     private TargetCandidate? SelectTargetCandidate(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, PointF referencePoint, AimRuntimeSettings settings, int targetWindowWidth)
     {
+        if (state.StabilizedLockedDetection is not null)
+        {
+            TargetCandidate? lockedCandidate = FindCurrentFrameLockedTarget(detections, captureBounds, settings, targetWindowWidth);
+            if (lockedCandidate is not null)
+            {
+                return lockedCandidate;
+            }
+        }
+
         PointF? lockedAnchor = state.SmoothedTargetScreenPoint ?? state.LockedTargetScreenPoint;
         float maxCandidateDistancePixels = GetCurrentAimAcquireDistancePixels(settings);
         float containingPaddingPixels = MathF.Max(settings.DeadzonePixels, 12f);
@@ -129,6 +143,43 @@ internal sealed class AimAssistController
             maxCandidateDistancePixels,
             containingPaddingPixels,
             detection => GetAimPoint(captureBounds, detection, settings, targetWindowWidth));
+    }
+
+    private TargetCandidate? FindCurrentFrameLockedTarget(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, AimRuntimeSettings settings, int targetWindowWidth)
+    {
+        DetectionResult lockedDetection = state.StabilizedLockedDetection!;
+        PointF lockedCenter = GetBoxCenter(lockedDetection.Box);
+        TargetCandidate? bestCandidate = null;
+        double bestScore = double.MaxValue;
+        double maxCenterDistanceSquared = LockedTargetMatchMaxCenterDistancePixels * LockedTargetMatchMaxCenterDistancePixels;
+
+        foreach (DetectionResult detection in detections)
+        {
+            if (detection.ClassId != lockedDetection.ClassId)
+            {
+                continue;
+            }
+
+            PointF currentCenter = GetBoxCenter(detection.Box);
+            double centerDistanceSquared = GetDistanceSquared(lockedCenter, currentCenter);
+            float iou = CalculateIou(lockedDetection.Box, detection.Box);
+            if (iou < LockedTargetMatchMinIou && centerDistanceSquared > maxCenterDistanceSquared)
+            {
+                continue;
+            }
+
+            double score = centerDistanceSquared - (iou * maxCenterDistanceSquared);
+            if (score >= bestScore)
+            {
+                continue;
+            }
+
+            PointF targetPoint = GetAimPoint(captureBounds, detection, settings, targetWindowWidth);
+            bestCandidate = new TargetCandidate(detection, targetPoint, GetDistanceSquared(state.SmoothedTargetScreenPoint ?? state.LockedTargetScreenPoint ?? targetPoint, targetPoint));
+            bestScore = score;
+        }
+
+        return bestCandidate;
     }
 
     private bool IsLikelySameLockedTarget(DetectionResult detection, Rectangle captureBounds, AimRuntimeSettings settings, int targetWindowWidth)
@@ -145,6 +196,14 @@ internal sealed class AimAssistController
         return !state.HasAppliedInitialLockPull
             ? Math.Max(1f, settings.InitialAcquireDistancePixels)
             : Math.Max(1f, settings.TrackedAcquireDistancePixels);
+    }
+
+    private static float GetAdaptiveTargetTrackingBlend(PointF smoothedPoint, PointF targetPoint, AimRuntimeSettings settings)
+    {
+        float baseBlend = Math.Clamp(settings.TargetTrackingBlend, 0.01f, MaxAdaptiveTrackingBlend);
+        float distance = MathF.Sqrt(GetDistanceSquared(smoothedPoint, targetPoint));
+        float distanceScale = Math.Clamp(distance / AdaptiveTrackingDistancePixels, 0f, 1f);
+        return LerpFloat(baseBlend, MaxAdaptiveTrackingBlend, distanceScale);
     }
 
     private static PointF GetAimReferencePoint()

@@ -9,15 +9,15 @@ namespace YOLOForAim;
 /// </summary>
 internal sealed class OverlayTracker
 {
-    private const float MaxSpeedPixelsPerSecond = 900f;
-    private const float MinMatchDistancePixels = 18f;
+    private const float MaxSpeedPixelsPerSecond = 2400f;
+    private const float MinMatchDistancePixels = 48f;
     private const float MinIou = 0.18f;
     private const float PositionBlend = 0.9f;
     private const float SizeBlend = 0.8f;
     private const float JitterDeadzonePixels = 4f;
-    private const float PredictionLeadSeconds = 0.018f;
-    private const float MaxPredictionSeconds = 0.06f;
-    private const float MaxPredictionPixels = 48f;
+    private const float PredictionLeadSeconds = 0f;
+    private const float MaxPredictionSeconds = 0f;
+    private const float MaxPredictionPixels = 0f;
 
     private OverlayTrack[] tracks = Array.Empty<OverlayTrack>();
     private long tracksTick;

@@ -160,28 +160,9 @@ internal sealed class DetectionOverlayForm : Form
             e.Graphics.DrawString(text, Font, textBrush, boxX + 3, labelY + 1);
         }
 
-        if (lockedDetection is not null)
-        {
-            RectangleF lockSquare = GetLockSquareBounds(GetDetectionOverlayBounds(lockedDetection, offsetX, offsetY), stopSquareSizePixels, stopSquareTopOffsetPixels);
-            e.Graphics.DrawRectangle(stopAreaPen, lockSquare.X, lockSquare.Y, lockSquare.Width, lockSquare.Height);
-        }
-
-        if (aimPoint is not null)
-        {
-            float aimX = aimPoint.Value.X - rect.Left;
-            float aimY = aimPoint.Value.Y - rect.Top;
-            const float radius = 4f;
-            e.Graphics.FillEllipse(aimPointBrush, aimX - radius, aimY - radius, radius * 2f, radius * 2f);
-        }
-
-        if (!cursorPoint.IsEmpty)
-        {
-            float cursorX = cursorPoint.X - rect.Left;
-            float cursorY = cursorPoint.Y - rect.Top;
-            const float cursorHalfSize = 6f;
-            e.Graphics.DrawLine(cursorPen, cursorX - cursorHalfSize, cursorY, cursorX + cursorHalfSize, cursorY);
-            e.Graphics.DrawLine(cursorPen, cursorX, cursorY - cursorHalfSize, cursorX, cursorY + cursorHalfSize);
-        }
+        _ = lockedDetection;
+        _ = aimPoint;
+        _ = cursorPoint;
     }
 
     protected override void OnPaintBackground(PaintEventArgs e)
