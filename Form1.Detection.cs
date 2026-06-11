@@ -1,0 +1,262 @@
+﻿using System.Diagnostics;
+using System.Drawing;
+using System.Windows.Forms;
+
+namespace YOLOForAim;
+
+public partial class Form1
+{
+    private void btnStartDetection_Click(object? sender, EventArgs e)
+    {
+        StartDetection();
+    }
+
+    private void StartDetection()
+    {
+        if (selectedHwnd == IntPtr.Zero)
+        {
+            MessageBox.Show("请先选择目标窗口。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (captureTask is not null || inferenceTask is not null)
+        {
+            return;
+        }
+
+        DetectorBackend selectedBackend = GetSelectedBackend();
+        if (!DetectionStartupPlan.TryCreate(selectedBackend, out DetectionStartupPlan startupPlan, out string? startupErrorMessage))
+        {
+            MessageBox.Show(startupErrorMessage, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+
+        try
+        {
+            detector?.Dispose();
+            detector = DetectionBackendFactory.Create(
+                startupPlan,
+                chkPreferGpu.Checked,
+                (float)numScoreThreshold.Value / 100f,
+                currentPrimaryColorDetectionOptions);
+            windowCapture?.Dispose();
+            windowCapture = new DesktopDuplicationCapture(selectedHwnd);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"初始化失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+
+        detectionCancellationTokenSource = new CancellationTokenSource();
+        processedFrameCounter = 0;
+        inferenceFpsCounter.Restart();
+        ResetAimRuntimeState();
+        currentCaptureSettings = ReadCaptureRuntimeSettingsFromUi();
+        UpdateLiveAimRuntimeSettings();
+        diagnosticsHeader = detector?.ModelSummary ?? string.Empty;
+        UpdateDiagnosticsText();
+        ClearOverlayState();
+        EnsureDetectionOverlay();
+        overlayRefreshTimer.Start();
+        ShowWindowAsync(selectedHwnd, SW_RESTORE);
+        SetForegroundWindow(selectedHwnd);
+        captureTask = Task.Run(() => RunCaptureLoopAsync(detectionCancellationTokenSource.Token), detectionCancellationTokenSource.Token);
+        inferenceTask = Task.Run(() => RunInferenceLoopAsync(detectionCancellationTokenSource.Token), detectionCancellationTokenSource.Token);
+
+        btnStartDetection.Enabled = false;
+        btnStopDetection.Enabled = true;
+        lblStatus.Text = startupPlan.GetStartupStatusText(currentCaptureSettings);
+    }
+
+    private async Task ToggleDetectionAsync()
+    {
+        if (captureTask is not null || inferenceTask is not null)
+        {
+            await StopDetectionAsync();
+            return;
+        }
+
+        StartDetection();
+    }
+
+    private async void btnStopDetection_Click(object? sender, EventArgs e)
+    {
+        await StopDetectionAsync();
+    }
+
+    private async Task StopDetectionAsync()
+    {
+        if (captureTask is null && inferenceTask is null)
+        {
+            btnStartDetection.Enabled = true;
+            btnStopDetection.Enabled = false;
+            return;
+        }
+
+        detectionCancellationTokenSource?.Cancel();
+
+        try
+        {
+            var runningTasks = new[] { captureTask, inferenceTask }
+                .Where(static task => task is not null)
+                .Cast<Task>()
+                .ToArray();
+            await Task.WhenAll(runningTasks);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            captureTask = null;
+            inferenceTask = null;
+            detectionCancellationTokenSource?.Dispose();
+            detectionCancellationTokenSource = null;
+            lock (latestFrameLock)
+            {
+                latestCapturedFrame = null;
+                latestCapturedFrameVersion = 0;
+            }
+            windowCapture?.Dispose();
+            windowCapture = null;
+            detector?.Dispose();
+            detector = null;
+            overlayRefreshTimer.Stop();
+            ClearOverlayState();
+            detectionOverlay?.HideOverlay();
+            ResetAimRuntimeState();
+            inferenceFpsCounter.Reset();
+            diagnosticsHeader = string.Empty;
+            btnStartDetection.Enabled = true;
+            btnStopDetection.Enabled = false;
+            lblStatus.Text = "检测已停止。";
+            UpdateDiagnosticsText();
+        }
+    }
+
+    private async Task RunCaptureLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                if (windowCapture is null || !windowCapture.TryGetLatestFrame(50, currentCaptureSettings.CenterRoiOnly, currentCaptureSettings.RoiSize, out CapturedPixelFrame capturedFrame))
+                {
+                    await Task.Delay(1, cancellationToken);
+                    continue;
+                }
+
+                lock (latestFrameLock)
+                {
+                    latestCapturedFrame = capturedFrame;
+                    latestCapturedFrameVersion++;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                if (!IsDisposed)
+                {
+                    BeginInvoke(new Action(async () =>
+                    {
+                        await StopDetectionAsync();
+                        MessageBox.Show($"检测过程中发生错误: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }));
+                }
+
+                break;
+            }
+        }
+    }
+
+    private async Task RunInferenceLoopAsync(CancellationToken cancellationToken)
+    {
+        int processedVersion = -1;
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                CapturedPixelFrame? frameToProcess = null;
+                int currentVersion;
+                lock (latestFrameLock)
+                {
+                    currentVersion = latestCapturedFrameVersion;
+                    if (latestCapturedFrame is not null && currentVersion != processedVersion)
+                    {
+                        frameToProcess = latestCapturedFrame;
+                        processedVersion = currentVersion;
+                    }
+                }
+
+                if (frameToProcess is null)
+                {
+                    await Task.Delay(1, cancellationToken);
+                    continue;
+                }
+
+                if (frameToProcess is not null)
+                {
+                    Rectangle sourceRegion = frameToProcess.IsRegionAlreadyCropped
+                        ? new Rectangle(0, 0, frameToProcess.Width, frameToProcess.Height)
+                        : GetSourceRegion(frameToProcess.Width, frameToProcess.Height);
+                    var detectStopwatch = Stopwatch.StartNew();
+                    DetectionRunResult result = detector?.Detect(
+                        frameToProcess.Pixels,
+                        frameToProcess.Width,
+                        frameToProcess.Height,
+                        frameToProcess.Stride,
+                        sourceRegion,
+                        frameToProcess.ReferenceWidth) ?? new DetectionRunResult(Array.Empty<DetectionResult>());
+                    detectStopwatch.Stop();
+                    int targetWindowWidth = Math.Max(frameToProcess.ReferenceWidth, frameToProcess.Width);
+                    TryMoveMouseToNearestDetection(result.Detections, frameToProcess.ScreenBounds, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
+                    UpdateOverlayState(frameToProcess.ScreenBounds, result.Detections, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
+                    processedFrameCounter++;
+                    inferenceFpsCounter.AddFrame(detectStopwatch.Elapsed.TotalMilliseconds);
+
+                    bool refreshUi = processedFrameCounter % 5 == 0;
+
+                    if (!IsDisposed && refreshUi)
+                    {
+                        BeginInvoke(new Action(() => UpdatePreviewImage(null, result.Detections.Count)));
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                if (!IsDisposed)
+                {
+                    BeginInvoke(new Action(async () =>
+                    {
+                        await StopDetectionAsync();
+                        MessageBox.Show($"检测过程中发生错误: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }));
+                }
+
+                break;
+            }
+        }
+    }
+
+    private void UpdatePreviewImage(Bitmap? previewFrame, int detectionCount)
+    {
+        if (previewFrame is not null)
+        {
+            var previousImage = pictureBoxPreview.Image;
+            pictureBoxPreview.Image = previewFrame;
+            previousImage?.Dispose();
+        }
+
+        lblStatus.Text = $"检测中，目标数: {detectionCount}，检测 FPS: {inferenceFpsCounter.CurrentFps:F1}";
+        UpdateDiagnosticsText();
+    }
+}

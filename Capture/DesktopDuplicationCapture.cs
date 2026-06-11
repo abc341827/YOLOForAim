@@ -33,7 +33,7 @@ internal sealed class DesktopDuplicationCapture : IDisposable
 
     public bool TryGetLatestFrame(int timeoutMilliseconds, bool centerRoiOnly, int roiSize, out CapturedPixelFrame capturedFrame)
     {
-        capturedFrame = default;
+        capturedFrame = default!;
         if (disposed || duplication is null || d3dContext is null || stagingTexture is null)
         {
             return false;
@@ -197,7 +197,7 @@ internal sealed class DesktopDuplicationCapture : IDisposable
                 selectedAdapter,
                 DriverType.Unknown,
                 DeviceCreationFlags.BgraSupport,
-                null,
+                null!,
                 out ID3D11Device device,
                 out ID3D11DeviceContext context).CheckError();
 

@@ -1,0 +1,60 @@
+﻿using System.Drawing;
+using static YOLOForAim.AimGeometry;
+
+namespace YOLOForAim;
+
+/// <summary>
+/// 负责把检测框转换为屏幕坐标下的瞄准点、锁定框和稳定区域。
+/// 这里不保存任何状态，所有计算都由调用方传入当前捕获区域和运行时设置。
+/// </summary>
+internal static class AimPointCalculator
+{
+    private const float ColorPixelAimHorizontalOffsetScreenDivisor = 25.6f;
+
+    public static RectangleF GetDetectionScreenBounds(Rectangle captureBounds, DetectionResult detection)
+    {
+        return new RectangleF(
+            captureBounds.Left + detection.Box.X,
+            captureBounds.Top + detection.Box.Y,
+            detection.Box.Width,
+            detection.Box.Height);
+    }
+
+    public static bool IsAimReferenceInsideStableBox(Rectangle captureBounds, DetectionResult detection, PointF aimReferencePoint, float squareSizePixels, float topOffsetPixels)
+    {
+        RectangleF screenBounds = GetDetectionScreenBounds(captureBounds, detection);
+        RectangleF lockSquareBounds = GetLockSquareBounds(screenBounds, squareSizePixels, topOffsetPixels);
+        return lockSquareBounds.Contains(aimReferencePoint);
+    }
+
+    public static PointF GetStopLockTargetPoint(Rectangle captureBounds, DetectionResult detection, AimRuntimeSettings settings)
+    {
+        RectangleF screenBounds = GetDetectionScreenBounds(captureBounds, detection);
+        RectangleF lockSquareBounds = GetLockSquareBounds(screenBounds, settings.StopLockSquareSizePixels, settings.StopLockTopOffsetPixels);
+        return GetBoxCenter(lockSquareBounds);
+    }
+
+    public static RectangleF GetLockSquareBounds(RectangleF bounds, float squareSizePixels, float topOffsetPixels)
+    {
+        float squareSize = Math.Clamp(squareSizePixels, 8f, Math.Max(8f, Math.Min(bounds.Width, bounds.Height)));
+        float left = bounds.Left + ((bounds.Width - squareSize) / 2f);
+        float top = bounds.Top + Math.Clamp(topOffsetPixels, 0f, Math.Max(0f, bounds.Height - squareSize));
+        return new RectangleF(left, top, squareSize, squareSize);
+    }
+
+    public static PointF GetAimPoint(Rectangle captureBounds, DetectionResult detection, AimRuntimeSettings settings, int targetWindowWidth)
+    {
+        float horizontalOffset = IsColorPixelDetection(detection)
+            ? Math.Max(targetWindowWidth, captureBounds.Width) / ColorPixelAimHorizontalOffsetScreenDivisor
+            : 0f;
+
+        return new PointF(
+            captureBounds.Left + detection.Box.X + horizontalOffset,
+            captureBounds.Top + detection.Box.Bottom + settings.PointBelowOffsetPixels);
+    }
+
+    private static bool IsColorPixelDetection(DetectionResult detection)
+    {
+        return string.Equals(detection.Label, "ColorPixel", StringComparison.Ordinal);
+    }
+}
