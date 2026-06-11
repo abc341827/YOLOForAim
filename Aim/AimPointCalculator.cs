@@ -44,17 +44,21 @@ internal static class AimPointCalculator
 
     public static PointF GetAimPoint(Rectangle captureBounds, DetectionResult detection, AimRuntimeSettings settings, int targetWindowWidth)
     {
-        float horizontalOffset = IsColorPixelDetection(detection)
-            ? Math.Max(targetWindowWidth, captureBounds.Width) / ColorPixelAimHorizontalOffsetScreenDivisor
-            : 0f;
+        if (!IsColorDetection(detection))
+        {
+            RectangleF screenBounds = GetDetectionScreenBounds(captureBounds, detection);
+            return GetBoxCenter(screenBounds);
+        }
+
+        float horizontalOffset = Math.Max(targetWindowWidth, captureBounds.Width) / ColorPixelAimHorizontalOffsetScreenDivisor;
 
         return new PointF(
             captureBounds.Left + detection.Box.X + horizontalOffset,
             captureBounds.Top + detection.Box.Bottom + settings.PointBelowOffsetPixels);
     }
 
-    private static bool IsColorPixelDetection(DetectionResult detection)
+    private static bool IsColorDetection(DetectionResult detection)
     {
-        return string.Equals(detection.Label, "ColorPixel", StringComparison.Ordinal);
+        return detection.Label.StartsWith("Color", StringComparison.Ordinal);
     }
 }
