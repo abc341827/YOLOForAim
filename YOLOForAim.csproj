@@ -34,9 +34,6 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <TargetPath>dawn2.onnx</TargetPath>
     </None>
-    <None Update="exp.onnx">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
     <None Update="dawn01.onnx">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

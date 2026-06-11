@@ -6,7 +6,7 @@
 /// </summary>
 internal static class ModelPathResolver
 {
-    private static readonly string[] DirectMlModelCandidates = ["exp.onnx", "dawn.onnx", "dawn01.onnx"];
+    private static readonly string[] DirectMlModelCandidates = ["dawn2.onnx", "dawn.onnx", "dawn01.onnx", "exp.onnx"];
     private static readonly string[] TensorRtEngineCandidates = ["dawn2.engine", "dawn.engine"];
 
     public static string ResolveDirectMlModelPath()
