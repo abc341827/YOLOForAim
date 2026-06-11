@@ -37,6 +37,7 @@ internal sealed class AimTargetPredictor
         state.PreviousObservedTargetTick = now;
 
         float predictionSeconds = Math.Clamp(((now - capturedTick) / 1000f) + PredictionLeadSeconds, 0f, MaxPredictionSeconds);
+        return observedTargetPoint;
         return PredictPointFromVelocity(observedTargetPoint, velocity, predictionSeconds, MaxPredictionPixels);
     }
 }
