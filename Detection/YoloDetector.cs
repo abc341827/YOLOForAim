@@ -307,6 +307,11 @@ internal sealed class YoloDetector : IDetector
             return false;
         }
 
+        if (rowCount > 1024)
+        {
+            return false;
+        }
+
         var parsedDetections = new List<DetectionResult>();
         for (int rowIndex = 0; rowIndex < rowCount; rowIndex++)
         {
