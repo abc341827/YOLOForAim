@@ -11,7 +11,6 @@ internal sealed class AimRuntimeState
     public PointF? LockedTargetScreenPoint { get; set; }
     public PointF? SmoothedTargetScreenPoint { get; set; }
     public PointF? PreviousObservedTargetPoint { get; set; }
-    public PointF? FilteredTargetVelocity { get; set; }
     public long PreviousObservedTargetTick { get; set; }
     public int MissedTargetFrames { get; set; }
     public long LastFireActivityTick { get; set; }
@@ -50,7 +49,6 @@ internal sealed class AimRuntimeState
         LockedTargetScreenPoint = null;
         SmoothedTargetScreenPoint = null;
         PreviousObservedTargetPoint = null;
-        FilteredTargetVelocity = null;
         PreviousObservedTargetTick = 0;
         MissedTargetFrames = 0;
         StabilizedAimTargetHeight = 0f;
