@@ -38,6 +38,25 @@ internal static class AimMovementCalculator
             moveY *= scale;
         }
 
-        return new Point((int)Math.Round(moveX), (int)Math.Round(moveY));
+        return new Point(
+            ClampMoveAxisToTarget((int)Math.Round(moveX), rawMoveX),
+            ClampMoveAxisToTarget((int)Math.Round(moveY), rawMoveY));
+    }
+
+    private static int ClampMoveAxisToTarget(int move, float rawMove)
+    {
+        if (move == 0 || MathF.Abs(rawMove) < 1f)
+        {
+            return 0;
+        }
+
+        int direction = Math.Sign(rawMove);
+        if (Math.Sign(move) != direction)
+        {
+            return 0;
+        }
+
+        int maxAxisMove = (int)MathF.Floor(MathF.Abs(rawMove));
+        return direction * Math.Min(Math.Abs(move), maxAxisMove);
     }
 }

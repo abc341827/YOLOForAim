@@ -84,7 +84,12 @@ internal sealed class AimAssistController
         DetectionResult currentDetection = nearestDetection.Detection;
         bool resetTargetTracking = state.StabilizedLockedDetection is null || !IsLikelySameLockedTarget(currentDetection, captureBounds, settings, targetWindowWidth);
         DetectionResult stableDetection = targetStabilizer.GetStabilizedDetection(currentDetection, captureBounds, resetTargetTracking);
-        PointF targetPoint = targetPredictor.Predict(GetAimPoint(captureBounds, stableDetection, settings, targetWindowWidth), resetTargetTracking, now, capturedTick);
+        PointF observedTargetPoint = GetAimPoint(captureBounds, stableDetection, settings, targetWindowWidth);
+        PointF targetPoint = LimitCloseRangePrediction(
+            observedTargetPoint,
+            targetPredictor.Predict(observedTargetPoint, resetTargetTracking, now, capturedTick),
+            aimReferencePoint,
+            settings);
         state.LockedTargetScreenPoint = GetAimPoint(captureBounds, currentDetection, settings, targetWindowWidth);
         state.SmoothedTargetScreenPoint = state.SmoothedTargetScreenPoint is null || resetTargetTracking
             ? targetPoint
@@ -94,6 +99,7 @@ internal sealed class AimAssistController
         state.PendingTargetSwitchTick = 0;
         state.HasAppliedInitialLockPull = true;
 
+        float distanceToObservedAimPoint = AimMovementCalculator.GetDistanceToTarget(observedTargetPoint, aimReferencePoint);
         float distanceToAimPoint = AimMovementCalculator.GetDistanceToTarget(targetPoint, aimReferencePoint);
         if (settings.PointBelowOffsetPixels <= 0f &&
             AimPointCalculator.IsAimReferenceInsideStableBox(captureBounds, stableDetection, aimReferencePoint, settings.StopLockSquareSizePixels, settings.StopLockTopOffsetPixels))
@@ -101,12 +107,13 @@ internal sealed class AimAssistController
             return;
         }
 
-        if (distanceToAimPoint <= settings.DeadzonePixels || !assistGate.CanSendMove(settings, now, processedFrameVersion))
+        if (distanceToObservedAimPoint <= settings.DeadzonePixels || !assistGate.CanSendMove(settings, now, processedFrameVersion))
         {
             return;
         }
 
         Point finalMove = AimMovementCalculator.CalculateMove(targetPoint, aimReferencePoint, settings, distanceToAimPoint);
+        finalMove = ClampMoveToObservedTarget(finalMove, observedTargetPoint, aimReferencePoint, settings);
         if (finalMove.IsEmpty)
         {
             return;
@@ -204,6 +211,71 @@ internal sealed class AimAssistController
         float distance = MathF.Sqrt(GetDistanceSquared(smoothedPoint, targetPoint));
         float distanceScale = Math.Clamp(distance / AdaptiveTrackingDistancePixels, 0f, 1f);
         return LerpFloat(baseBlend, MaxAdaptiveTrackingBlend, distanceScale);
+    }
+
+    private static PointF LimitCloseRangePrediction(PointF observedTargetPoint, PointF predictedTargetPoint, PointF aimReferencePoint, AimRuntimeSettings settings)
+    {
+        float distanceToObservedPoint = AimMovementCalculator.GetDistanceToTarget(observedTargetPoint, aimReferencePoint);
+        float closeRangePixels = Math.Max(settings.CloseRangeSlowdownPixels, settings.DeadzonePixels + 1f);
+        if (distanceToObservedPoint >= closeRangePixels)
+        {
+            return predictedTargetPoint;
+        }
+
+        float predictionOffsetX = predictedTargetPoint.X - observedTargetPoint.X;
+        float predictionOffsetY = predictedTargetPoint.Y - observedTargetPoint.Y;
+        float predictionOffsetDistance = MathF.Sqrt((predictionOffsetX * predictionOffsetX) + (predictionOffsetY * predictionOffsetY));
+        if (predictionOffsetDistance <= 0.001f)
+        {
+            return predictedTargetPoint;
+        }
+
+        float closeRangeScale = Math.Clamp((distanceToObservedPoint - settings.DeadzonePixels) / (closeRangePixels - settings.DeadzonePixels), 0f, 1f);
+        float allowedPredictionOffset = predictionOffsetDistance * closeRangeScale;
+        if (predictionOffsetDistance <= allowedPredictionOffset)
+        {
+            return predictedTargetPoint;
+        }
+
+        float offsetScale = allowedPredictionOffset / predictionOffsetDistance;
+        return new PointF(
+            observedTargetPoint.X + (predictionOffsetX * offsetScale),
+            observedTargetPoint.Y + (predictionOffsetY * offsetScale));
+    }
+
+    private static Point ClampMoveToObservedTarget(Point move, PointF observedTargetPoint, PointF aimReferencePoint, AimRuntimeSettings settings)
+    {
+        if (move.IsEmpty)
+        {
+            return Point.Empty;
+        }
+
+        float observedOffsetX = observedTargetPoint.X - aimReferencePoint.X;
+        float observedOffsetY = observedTargetPoint.Y - aimReferencePoint.Y;
+        float observedDistance = MathF.Sqrt((observedOffsetX * observedOffsetX) + (observedOffsetY * observedOffsetY));
+        if (observedDistance <= settings.DeadzonePixels)
+        {
+            return Point.Empty;
+        }
+
+        float unitX = observedOffsetX / observedDistance;
+        float unitY = observedOffsetY / observedDistance;
+        float forwardMove = (move.X * unitX) + (move.Y * unitY);
+        float lateralMoveX = move.X - (forwardMove * unitX);
+        float lateralMoveY = move.Y - (forwardMove * unitY);
+
+        float minimumRemainingDistance = Math.Max(1f, settings.DeadzonePixels * 0.5f);
+        float maxForwardMove = Math.Max(0f, observedDistance - minimumRemainingDistance);
+        forwardMove = Math.Clamp(forwardMove, 0f, maxForwardMove);
+
+        float closeRangePixels = Math.Max(settings.CloseRangeSlowdownPixels, settings.DeadzonePixels + 1f);
+        float lateralScale = Math.Clamp((observedDistance - settings.DeadzonePixels) / (closeRangePixels - settings.DeadzonePixels), 0f, 1f);
+        lateralMoveX *= lateralScale;
+        lateralMoveY *= lateralScale;
+
+        return new Point(
+            (int)Math.Round((forwardMove * unitX) + lateralMoveX),
+            (int)Math.Round((forwardMove * unitY) + lateralMoveY));
     }
 
     private static PointF GetAimReferencePoint()
