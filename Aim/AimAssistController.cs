@@ -85,11 +85,8 @@ internal sealed class AimAssistController
         bool resetTargetTracking = state.StabilizedLockedDetection is null || !IsLikelySameLockedTarget(currentDetection, captureBounds, settings, targetWindowWidth);
         DetectionResult stableDetection = targetStabilizer.GetStabilizedDetection(currentDetection, captureBounds, resetTargetTracking);
         PointF observedTargetPoint = GetAimPoint(captureBounds, stableDetection, settings, targetWindowWidth);
-        PointF targetPoint = LimitCloseRangePrediction(
-            observedTargetPoint,
-            targetPredictor.Predict(observedTargetPoint, resetTargetTracking, now, capturedTick),
-            aimReferencePoint,
-            settings);
+        TargetPrediction targetPrediction = targetPredictor.Predict(observedTargetPoint, resetTargetTracking, now, capturedTick);
+        PointF targetPoint = observedTargetPoint;
         state.LockedTargetScreenPoint = GetAimPoint(captureBounds, currentDetection, settings, targetWindowWidth);
         state.SmoothedTargetScreenPoint = state.SmoothedTargetScreenPoint is null || resetTargetTracking
             ? targetPoint
@@ -107,13 +104,17 @@ internal sealed class AimAssistController
             return;
         }
 
-        if (distanceToObservedAimPoint <= settings.DeadzonePixels || !assistGate.CanSendMove(settings, now, processedFrameVersion))
+        if (distanceToObservedAimPoint <= settings.DeadzonePixels && !ShouldVelocityFollow(targetPrediction.Velocity, settings))
         {
             return;
         }
 
-        Point finalMove = AimMovementCalculator.CalculateMove(targetPoint, aimReferencePoint, settings, distanceToAimPoint);
-        finalMove = ClampMoveToObservedTarget(finalMove, observedTargetPoint, aimReferencePoint, settings);
+        if (!assistGate.CanSendMove(settings, now, processedFrameVersion))
+        {
+            return;
+        }
+
+        Point finalMove = AimMovementCalculator.CalculateMove(observedTargetPoint, aimReferencePoint, settings, distanceToObservedAimPoint, targetPrediction.Velocity);
         if (finalMove.IsEmpty)
         {
             return;
@@ -211,6 +212,13 @@ internal sealed class AimAssistController
         float distance = MathF.Sqrt(GetDistanceSquared(smoothedPoint, targetPoint));
         float distanceScale = Math.Clamp(distance / AdaptiveTrackingDistancePixels, 0f, 1f);
         return LerpFloat(baseBlend, MaxAdaptiveTrackingBlend, distanceScale);
+    }
+
+    private static bool ShouldVelocityFollow(PointF targetVelocity, AimRuntimeSettings settings)
+    {
+        float velocityPixelsPerSecond = MathF.Sqrt((targetVelocity.X * targetVelocity.X) + (targetVelocity.Y * targetVelocity.Y));
+        float minFollowVelocity = Math.Max(80f, settings.DeadzonePixels * 8f);
+        return velocityPixelsPerSecond >= minFollowVelocity;
     }
 
     private static PointF LimitCloseRangePrediction(PointF observedTargetPoint, PointF predictedTargetPoint, PointF aimReferencePoint, AimRuntimeSettings settings)

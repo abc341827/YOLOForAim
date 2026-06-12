@@ -8,6 +8,9 @@ namespace YOLOForAim;
 /// </summary>
 internal static class AimMovementCalculator
 {
+    private const float VelocityFeedForwardSeconds = 0.028f;
+    private const float MaxVelocityFeedForwardPixels = 12f;
+
     public static float GetDistanceToTarget(PointF targetPoint, PointF referencePoint)
     {
         float rawMoveX = targetPoint.X - referencePoint.X;
@@ -15,12 +18,16 @@ internal static class AimMovementCalculator
         return MathF.Sqrt((rawMoveX * rawMoveX) + (rawMoveY * rawMoveY));
     }
 
-    public static Point CalculateMove(PointF targetPoint, PointF referencePoint, AimRuntimeSettings settings, float distanceToTarget)
+    public static Point CalculateMove(PointF targetPoint, PointF referencePoint, AimRuntimeSettings settings, float distanceToTarget, PointF targetVelocity)
     {
         float rawMoveX = targetPoint.X - referencePoint.X;
         float rawMoveY = targetPoint.Y - referencePoint.Y;
         float moveX = rawMoveX * settings.SmoothingFactor * settings.SpeedMultiplier;
         float moveY = rawMoveY * settings.SmoothingFactor * settings.SpeedMultiplier;
+
+        PointF feedForwardMove = GetVelocityFeedForwardMove(targetVelocity, settings, distanceToTarget);
+        moveX += feedForwardMove.X;
+        moveY += feedForwardMove.Y;
 
         if (settings.CloseRangeSlowdownPixels > 1f && distanceToTarget < settings.CloseRangeSlowdownPixels)
         {
@@ -39,24 +46,54 @@ internal static class AimMovementCalculator
         }
 
         return new Point(
-            ClampMoveAxisToTarget((int)Math.Round(moveX), rawMoveX),
-            ClampMoveAxisToTarget((int)Math.Round(moveY), rawMoveY));
+            ClampMoveAxisToTarget((int)Math.Round(moveX), rawMoveX, MathF.Abs(feedForwardMove.X)),
+            ClampMoveAxisToTarget((int)Math.Round(moveY), rawMoveY, MathF.Abs(feedForwardMove.Y)));
     }
 
-    private static int ClampMoveAxisToTarget(int move, float rawMove)
+    private static PointF GetVelocityFeedForwardMove(PointF targetVelocity, AimRuntimeSettings settings, float distanceToTarget)
     {
-        if (move == 0 || MathF.Abs(rawMove) < 1f)
+        float feedForwardX = targetVelocity.X * VelocityFeedForwardSeconds * settings.SpeedMultiplier;
+        float feedForwardY = targetVelocity.Y * VelocityFeedForwardSeconds * settings.SpeedMultiplier;
+        float feedForwardDistance = MathF.Sqrt((feedForwardX * feedForwardX) + (feedForwardY * feedForwardY));
+        if (feedForwardDistance <= 0.001f)
+        {
+            return PointF.Empty;
+        }
+
+        float maxFeedForwardPixels = Math.Min(MaxVelocityFeedForwardPixels, Math.Max(2f, settings.MaxStepPixels * 0.35f));
+        if (feedForwardDistance > maxFeedForwardPixels)
+        {
+            float scale = maxFeedForwardPixels / feedForwardDistance;
+            feedForwardX *= scale;
+            feedForwardY *= scale;
+        }
+
+        float closeRangePixels = Math.Max(settings.CloseRangeSlowdownPixels, settings.DeadzonePixels + 1f);
+        float followScale = Math.Clamp((distanceToTarget + settings.DeadzonePixels) / closeRangePixels, 0.45f, 1f);
+        return new PointF(feedForwardX * followScale, feedForwardY * followScale);
+    }
+
+    private static int ClampMoveAxisToTarget(int move, float rawMove, float feedForwardAllowance)
+    {
+        if (move == 0)
         {
             return 0;
+        }
+
+        if (MathF.Abs(rawMove) < 1f)
+        {
+            int feedForwardOnlyMaxMove = (int)MathF.Ceiling(feedForwardAllowance);
+            return Math.Sign(move) * Math.Min(Math.Abs(move), feedForwardOnlyMaxMove);
         }
 
         int direction = Math.Sign(rawMove);
         if (Math.Sign(move) != direction)
         {
-            return 0;
+            int feedForwardOnlyMaxMove = (int)MathF.Ceiling(feedForwardAllowance);
+            return Math.Sign(move) * Math.Min(Math.Abs(move), feedForwardOnlyMaxMove);
         }
 
-        int maxAxisMove = (int)MathF.Floor(MathF.Abs(rawMove));
+        int maxAxisMove = (int)MathF.Floor(MathF.Abs(rawMove) + feedForwardAllowance);
         return direction * Math.Min(Math.Abs(move), maxAxisMove);
     }
 }

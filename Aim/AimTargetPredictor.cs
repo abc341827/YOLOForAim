@@ -22,14 +22,14 @@ internal sealed class AimTargetPredictor
         this.state = state;
     }
 
-    public PointF Predict(PointF observedTargetPoint, bool resetTargetTracking, long now, long capturedTick)
+    public TargetPrediction Predict(PointF observedTargetPoint, bool resetTargetTracking, long now, long capturedTick)
     {
         if (resetTargetTracking || state.PreviousObservedTargetPoint is null || state.PreviousObservedTargetTick <= 0)
         {
             state.PreviousObservedTargetPoint = observedTargetPoint;
             kalmanFilter = new TargetKalmanFilter(observedTargetPoint);
             state.PreviousObservedTargetTick = now;
-            return observedTargetPoint;
+            return new TargetPrediction(observedTargetPoint, PointF.Empty);
         }
 
         float deltaSeconds = Math.Max(0.001f, (now - state.PreviousObservedTargetTick) / 1000f);
@@ -38,7 +38,7 @@ internal sealed class AimTargetPredictor
             state.PreviousObservedTargetPoint = observedTargetPoint;
             kalmanFilter = new TargetKalmanFilter(observedTargetPoint);
             state.PreviousObservedTargetTick = now;
-            return observedTargetPoint;
+            return new TargetPrediction(observedTargetPoint, PointF.Empty);
         }
 
         kalmanFilter ??= new TargetKalmanFilter(state.PreviousObservedTargetPoint.Value);
@@ -47,6 +47,8 @@ internal sealed class AimTargetPredictor
         state.PreviousObservedTargetTick = now;
 
         float predictionSeconds = Math.Clamp(((now - capturedTick) / 1000f) + PredictionLeadSeconds, 0f, MaxPredictionSeconds);
-        return kalmanFilter.Predict(predictionSeconds, MaxPredictionPixels);
+        return new TargetPrediction(kalmanFilter.Predict(predictionSeconds, MaxPredictionPixels), kalmanFilter.Velocity);
     }
 }
+
+internal readonly record struct TargetPrediction(PointF PredictedPoint, PointF Velocity);
