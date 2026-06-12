@@ -214,8 +214,9 @@ public partial class Form1
                         frameToProcess.ReferenceWidth) ?? new DetectionRunResult(Array.Empty<DetectionResult>());
                     detectStopwatch.Stop();
                     int targetWindowWidth = Math.Max(frameToProcess.ReferenceWidth, frameToProcess.Width);
-                    TryMoveMouseToNearestDetection(result.Detections, frameToProcess.ScreenBounds, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
-                    UpdateOverlayState(frameToProcess.ScreenBounds, result.Detections, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
+                    IReadOnlyList<DetectionResult> primaryDetections = primaryTargetTracker.SelectPrimaryTarget(result.Detections, frameToProcess.ScreenBounds);
+                    TryMoveMouseToNearestDetection(primaryDetections, frameToProcess.ScreenBounds, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
+                    UpdateOverlayState(frameToProcess.ScreenBounds, primaryDetections, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
                     processedFrameCounter++;
                     inferenceFpsCounter.AddFrame(detectStopwatch.Elapsed.TotalMilliseconds);
 
@@ -223,7 +224,7 @@ public partial class Form1
 
                     if (!IsDisposed && refreshUi)
                     {
-                        BeginInvoke(new Action(() => UpdatePreviewImage(null, result.Detections.Count)));
+                        BeginInvoke(new Action(() => UpdatePreviewImage(null, primaryDetections.Count)));
                     }
                 }
             }

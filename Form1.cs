@@ -34,6 +34,7 @@ namespace YOLOForAim
         private DesktopDuplicationCapture? windowCapture;
         private CapturedPixelFrame? latestCapturedFrame;
         private int latestCapturedFrameVersion;
+        private readonly PrimaryTargetTracker primaryTargetTracker = new();
         private readonly AimAssistController aimAssistController = new();
         private readonly OverlayStateManager overlayStateManager = new();
         private readonly System.Windows.Forms.Timer overlayRefreshTimer;
@@ -438,11 +439,13 @@ namespace YOLOForAim
 
         private void ResetAimRuntimeState()
         {
+            primaryTargetTracker.Clear();
             aimAssistController.ResetRuntime();
         }
 
         private void ResetAimTrackingState()
         {
+            primaryTargetTracker.Clear();
             aimAssistController.ResetTracking();
         }
     }
