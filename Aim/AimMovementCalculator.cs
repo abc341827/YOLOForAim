@@ -8,8 +8,9 @@ namespace YOLOForAim;
 /// </summary>
 internal static class AimMovementCalculator
 {
-    private const float VelocityFeedForwardSeconds = 0.028f;
-    private const float MaxVelocityFeedForwardPixels = 12f;
+    private const float BaseVelocityFeedForwardSeconds = 0.034f;
+    private const float MaxAdaptiveVelocityLeadSeconds = 0.026f;
+    private const float MaxVelocityFeedForwardPixels = 18f;
 
     public static float GetDistanceToTarget(PointF targetPoint, PointF referencePoint)
     {
@@ -25,16 +26,16 @@ internal static class AimMovementCalculator
         float moveX = rawMoveX * settings.SmoothingFactor * settings.SpeedMultiplier;
         float moveY = rawMoveY * settings.SmoothingFactor * settings.SpeedMultiplier;
 
-        PointF feedForwardMove = GetVelocityFeedForwardMove(targetVelocity, settings, distanceToTarget);
-        moveX += feedForwardMove.X;
-        moveY += feedForwardMove.Y;
-
         if (settings.CloseRangeSlowdownPixels > 1f && distanceToTarget < settings.CloseRangeSlowdownPixels)
         {
             float slowdownScale = Math.Clamp(distanceToTarget / settings.CloseRangeSlowdownPixels, 0.2f, 1f);
             moveX *= slowdownScale;
             moveY *= slowdownScale;
         }
+
+        PointF feedForwardMove = GetVelocityFeedForwardMove(targetVelocity, settings, distanceToTarget, rawMoveX, rawMoveY);
+        moveX += feedForwardMove.X;
+        moveY += feedForwardMove.Y;
 
         float smoothedDistance = MathF.Sqrt((moveX * moveX) + (moveY * moveY));
         float currentMaxStep = settings.MaxStepPixels * settings.SpeedMultiplier;
@@ -50,17 +51,29 @@ internal static class AimMovementCalculator
             ClampMoveAxisToTarget((int)Math.Round(moveY), rawMoveY, MathF.Abs(feedForwardMove.Y)));
     }
 
-    private static PointF GetVelocityFeedForwardMove(PointF targetVelocity, AimRuntimeSettings settings, float distanceToTarget)
+    private static PointF GetVelocityFeedForwardMove(PointF targetVelocity, AimRuntimeSettings settings, float distanceToTarget, float rawMoveX, float rawMoveY)
     {
-        float feedForwardX = targetVelocity.X * VelocityFeedForwardSeconds * settings.SpeedMultiplier;
-        float feedForwardY = targetVelocity.Y * VelocityFeedForwardSeconds * settings.SpeedMultiplier;
+        float velocityPixelsPerSecond = MathF.Sqrt((targetVelocity.X * targetVelocity.X) + (targetVelocity.Y * targetVelocity.Y));
+        if (velocityPixelsPerSecond <= 0.001f)
+        {
+            return PointF.Empty;
+        }
+
+        float velocityUnitX = targetVelocity.X / velocityPixelsPerSecond;
+        float velocityUnitY = targetVelocity.Y / velocityPixelsPerSecond;
+        float lagAlongVelocityPixels = (rawMoveX * velocityUnitX) + (rawMoveY * velocityUnitY);
+        float adaptiveLeadSeconds = Math.Clamp(lagAlongVelocityPixels / velocityPixelsPerSecond, 0f, MaxAdaptiveVelocityLeadSeconds);
+        float feedForwardSeconds = BaseVelocityFeedForwardSeconds + adaptiveLeadSeconds;
+
+        float feedForwardX = targetVelocity.X * feedForwardSeconds * settings.SpeedMultiplier;
+        float feedForwardY = targetVelocity.Y * feedForwardSeconds * settings.SpeedMultiplier;
         float feedForwardDistance = MathF.Sqrt((feedForwardX * feedForwardX) + (feedForwardY * feedForwardY));
         if (feedForwardDistance <= 0.001f)
         {
             return PointF.Empty;
         }
 
-        float maxFeedForwardPixels = Math.Min(MaxVelocityFeedForwardPixels, Math.Max(2f, settings.MaxStepPixels * 0.35f));
+        float maxFeedForwardPixels = Math.Min(MaxVelocityFeedForwardPixels, Math.Max(3f, settings.MaxStepPixels * 0.5f));
         if (feedForwardDistance > maxFeedForwardPixels)
         {
             float scale = maxFeedForwardPixels / feedForwardDistance;
@@ -69,7 +82,12 @@ internal static class AimMovementCalculator
         }
 
         float closeRangePixels = Math.Max(settings.CloseRangeSlowdownPixels, settings.DeadzonePixels + 1f);
-        float followScale = Math.Clamp((distanceToTarget + settings.DeadzonePixels) / closeRangePixels, 0.45f, 1f);
+        float followScale = Math.Clamp((distanceToTarget + settings.DeadzonePixels) / closeRangePixels, 0.75f, 1f);
+        if (lagAlongVelocityPixels < -settings.DeadzonePixels)
+        {
+            followScale *= 0.35f;
+        }
+
         return new PointF(feedForwardX * followScale, feedForwardY * followScale);
     }
 
