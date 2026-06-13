@@ -42,12 +42,12 @@ internal static class AimPointCalculator
         }
 
         float horizontalOffset = Math.Max(targetWindowWidth, detection.Box.Width) / ColorPixelAimHorizontalOffsetScreenDivisor;
-        PointF targetCenter = new(
-            detection.Box.X + horizontalOffset,
-            detection.Box.Y + (detection.Box.Height / 2f));
         float boxSize = Math.Max(8f, settings.StopLockSquareSizePixels);
-        RectangleF targetBox = CreateCenteredBox(targetCenter, new SizeF(boxSize, boxSize));
-        targetBox.Offset(0f, settings.PointBelowOffsetPixels);
+        RectangleF targetBox = new(
+            detection.Box.X + horizontalOffset - (boxSize / 2f),
+            detection.Box.Y + settings.PointBelowOffsetPixels,
+            boxSize,
+            boxSize);
         return detection with { Box = targetBox };
     }
 
