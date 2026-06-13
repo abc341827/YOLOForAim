@@ -8,7 +8,7 @@ namespace YOLOForAim;
 /// </summary>
 internal sealed class PrimaryTargetTracker
 {
-    private const int MissingTargetHoldMs = 180;
+    private const int LostTargetIdentityHoldMs = 350;
     private const float MaxLockedCenterDistancePixels = 160f;
     private const float MinLockedIou = 0.08f;
 
@@ -16,7 +16,7 @@ internal sealed class PrimaryTargetTracker
     private Rectangle lockedCaptureBounds;
     private long latestLockTick;
 
-    public IReadOnlyList<DetectionResult> SelectPrimaryTarget(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds)
+    public IReadOnlyList<DetectionResult> SelectPrimaryTarget(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, Point cursorPoint, AimRuntimeSettings settings)
     {
         long now = Environment.TickCount64;
         if (captureBounds.IsEmpty)
@@ -27,16 +27,48 @@ internal sealed class PrimaryTargetTracker
 
         if (detections.Count == 0)
         {
-            return TryHoldLockedDetection(now);
+            ClearExpiredLockedTarget(now);
+            return Array.Empty<DetectionResult>();
         }
 
-        DetectionResult? selectedDetection = lockedDetection is null
-            ? FindNearestToCaptureCenter(detections, captureBounds)
-            : FindLockedTarget(detections, captureBounds) ?? (now - latestLockTick <= MissingTargetHoldMs ? lockedDetection : FindNearestToCaptureCenter(detections, captureBounds));
+        bool hasValidLockedIdentity = IsLockedIdentityValid(now);
+        if (lockedDetection is not null && !hasValidLockedIdentity)
+        {
+            Clear();
+        }
+
+        if (lockedDetection is not null && IsCursorInsideLockedTarget(cursorPoint, settings))
+        {
+            DetectionResult? lockedTarget = FindLockedTarget(detections, captureBounds);
+            if (lockedTarget is null)
+            {
+                return Array.Empty<DetectionResult>();
+            }
+
+            lockedDetection = lockedTarget;
+            lockedCaptureBounds = captureBounds;
+            latestLockTick = now;
+            return new[] { lockedDetection };
+        }
+
+        DetectionResult? selectedDetection;
+        if (lockedDetection is null)
+        {
+            selectedDetection = FindNearestToCaptureCenter(detections, captureBounds);
+        }
+        else
+        {
+            selectedDetection = FindLockedTarget(detections, captureBounds);
+            if (selectedDetection is null)
+            {
+                return Array.Empty<DetectionResult>();
+            }
+        }
 
         if (selectedDetection is null)
         {
-            return TryHoldLockedDetection(now);
+            Clear();
+            return Array.Empty<DetectionResult>();
         }
 
         lockedDetection = selectedDetection;
@@ -52,11 +84,17 @@ internal sealed class PrimaryTargetTracker
         latestLockTick = 0;
     }
 
-    private IReadOnlyList<DetectionResult> TryHoldLockedDetection(long now)
+    private bool IsLockedIdentityValid(long now)
     {
-        return lockedDetection is not null && now - latestLockTick <= MissingTargetHoldMs
-            ? new[] { lockedDetection }
-            : Array.Empty<DetectionResult>();
+        return lockedDetection is not null && now - latestLockTick <= LostTargetIdentityHoldMs;
+    }
+
+    private void ClearExpiredLockedTarget(long now)
+    {
+        if (!IsLockedIdentityValid(now))
+        {
+            Clear();
+        }
     }
 
     private DetectionResult? FindNearestToCaptureCenter(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds)
@@ -125,5 +163,17 @@ internal sealed class PrimaryTargetTracker
     {
         PointF center = GetBoxCenter(detection.Box);
         return new PointF(captureBounds.Left + center.X, captureBounds.Top + center.Y);
+    }
+
+    private bool IsCursorInsideLockedTarget(Point cursorPoint, AimRuntimeSettings settings)
+    {
+        return lockedDetection is not null &&
+            !lockedCaptureBounds.IsEmpty &&
+            AimPointCalculator.IsAimReferenceInsideStableBox(
+                lockedCaptureBounds,
+                lockedDetection,
+                new PointF(cursorPoint.X, cursorPoint.Y),
+                settings.StopLockSquareSizePixels,
+                settings.StopLockTopOffsetPixels);
     }
 }

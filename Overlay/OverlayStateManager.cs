@@ -31,7 +31,7 @@ internal sealed class OverlayStateManager
     {
         IReadOnlyList<DetectionResult> overlayDetections = processedFrameVersion <= suppressOverlayFrameVersion
             ? Array.Empty<DetectionResult>()
-            : tracker.Track(rawDetections, capturedTick, currentInferenceFps);
+            : rawDetections.Take(1).ToArray();
 
         long now = Environment.TickCount64;
         lock (syncRoot)

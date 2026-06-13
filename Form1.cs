@@ -49,7 +49,7 @@ namespace YOLOForAim
             InitializeComponent();
             overlayRefreshTimer = new System.Windows.Forms.Timer { Interval = 16 };
             overlayRefreshTimer.Tick += OverlayRefreshTimer_Tick;
-            pictureBoxPreview.Visible = false;
+            pictureBoxPreview.Visible = true;
             lblStatus.Text = "请选择目标窗口。";
             txtDiagnostics.Text = "检测 FPS: 0.0";
             chkOverlayEnabled.Checked = true;

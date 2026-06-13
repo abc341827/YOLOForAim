@@ -219,6 +219,7 @@ internal sealed class AimAssistController
             finalMove = AimMovementCalculator.CalculateMove(targetPoint, aimReferencePoint, controlSettings, distanceToAimPoint, targetPrediction.Velocity, controlDeltaSeconds);
             finalMove = ClampMoveToObservedTarget(finalMove, observedTargetPoint, aimReferencePoint, settings);
             finalMove = LimitMoveAcceleration(finalMove, lastControlMove, targetPoint, aimReferencePoint, settings);
+            finalMove = ClampMoveNoOvershoot(finalMove, targetPoint, aimReferencePoint, settings);
             if (finalMove.IsEmpty)
             {
                 lastControlMove = Point.Empty;
@@ -440,6 +441,42 @@ internal sealed class AimAssistController
         return new Point(
             (int)Math.Round(previousMove.X + (deltaX * scale)),
             (int)Math.Round(previousMove.Y + (deltaY * scale)));
+    }
+
+    private static Point ClampMoveNoOvershoot(Point move, PointF targetPoint, PointF aimReferencePoint, AimRuntimeSettings settings)
+    {
+        if (move.IsEmpty)
+        {
+            return Point.Empty;
+        }
+
+        float errorX = targetPoint.X - aimReferencePoint.X;
+        float errorY = targetPoint.Y - aimReferencePoint.Y;
+        float distance = MathF.Sqrt((errorX * errorX) + (errorY * errorY));
+        float stopDistance = Math.Max(1f, settings.DeadzonePixels * 0.85f);
+        if (distance <= stopDistance)
+        {
+            return Point.Empty;
+        }
+
+        float unitX = errorX / distance;
+        float unitY = errorY / distance;
+        float forwardMove = (move.X * unitX) + (move.Y * unitY);
+        if (forwardMove <= 0f)
+        {
+            return Point.Empty;
+        }
+
+        float maxForwardMove = Math.Max(0f, distance - stopDistance);
+        forwardMove = Math.Min(forwardMove, maxForwardMove);
+        if (forwardMove < 0.5f)
+        {
+            return Point.Empty;
+        }
+
+        return new Point(
+            (int)Math.Round(unitX * forwardMove),
+            (int)Math.Round(unitY * forwardMove));
     }
 
     private void ResetTrackingCore()

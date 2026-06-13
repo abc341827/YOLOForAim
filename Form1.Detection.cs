@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace YOLOForAim;
@@ -233,17 +234,25 @@ public partial class Form1
                         frameToProcess.ReferenceWidth) ?? new DetectionRunResult(Array.Empty<DetectionResult>());
                     detectStopwatch.Stop();
                     int targetWindowWidth = Math.Max(frameToProcess.ReferenceWidth, frameToProcess.Width);
-                    IReadOnlyList<DetectionResult> primaryDetections = primaryTargetTracker.SelectPrimaryTarget(result.Detections, frameToProcess.ScreenBounds);
+                    IReadOnlyList<DetectionResult> primaryDetections = primaryTargetTracker.SelectPrimaryTarget(result.Detections, frameToProcess.ScreenBounds, Cursor.Position, currentAimSettings);
                     TryMoveMouseToNearestDetection(primaryDetections, frameToProcess.ScreenBounds, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
                     UpdateOverlayState(frameToProcess.ScreenBounds, primaryDetections, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
                     processedFrameCounter++;
                     inferenceFpsCounter.AddFrame(detectStopwatch.Elapsed.TotalMilliseconds);
 
-                    bool refreshUi = processedFrameCounter % 5 == 0;
+                    int previewInterval = Math.Max(1, currentCaptureSettings.PreviewInterval);
+                    bool refreshUi = processedFrameCounter % previewInterval == 0;
+                    Bitmap? previewBitmap = refreshUi
+                        ? CreateDetectionPreviewBitmap(frameToProcess, primaryDetections)
+                        : null;
 
                     if (!IsDisposed && refreshUi)
                     {
-                        BeginInvoke(new Action(() => UpdatePreviewImage(null, primaryDetections.Count)));
+                        BeginInvoke(new Action(() => UpdatePreviewImage(previewBitmap, primaryDetections.Count)));
+                    }
+                    else
+                    {
+                        previewBitmap?.Dispose();
                     }
                 }
             }
@@ -278,5 +287,26 @@ public partial class Form1
 
         lblStatus.Text = $"检测中，目标数: {detectionCount}，检测 FPS: {inferenceFpsCounter.CurrentFps:F1}";
         UpdateDiagnosticsText();
+    }
+
+    private static Bitmap CreateDetectionPreviewBitmap(CapturedPixelFrame frame, IReadOnlyList<DetectionResult> detections)
+    {
+        Bitmap bitmap = new(frame.Width, frame.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        Rectangle bounds = new(0, 0, frame.Width, frame.Height);
+        System.Drawing.Imaging.BitmapData bitmapData = bitmap.LockBits(bounds, System.Drawing.Imaging.ImageLockMode.WriteOnly, bitmap.PixelFormat);
+        try
+        {
+            for (int y = 0; y < frame.Height; y++)
+            {
+                Marshal.Copy(frame.Pixels, y * frame.Stride, bitmapData.Scan0 + (y * bitmapData.Stride), frame.Stride);
+            }
+        }
+        finally
+        {
+            bitmap.UnlockBits(bitmapData);
+        }
+
+        DetectionPreviewRenderer.DrawDetections(bitmap, detections, SystemFonts.DefaultFont);
+        return bitmap;
     }
 }
