@@ -34,6 +34,7 @@ internal sealed class AimAssistController
     private int lastTargetUpdateFrameVersion = -1;
     private Rectangle lastControlCaptureBounds;
     private DetectionResult? lastControlStableDetection;
+    private PointF lastControlObservedTargetPoint;
     private Point lastControlMove = Point.Empty;
     private long lastControlMoveTick;
     private readonly List<PendingAimMove> pendingAimMoves = new();
@@ -151,7 +152,8 @@ internal sealed class AimAssistController
             state.PendingTargetSwitchTick = 0;
             state.HasAppliedInitialLockPull = true;
 
-            if (IsAimReferenceInsideCompensatedStableBox(captureBounds, stableDetection, aimReferencePoint, settings))
+            if (!ShouldVelocityFollow(targetPrediction.Velocity, settings) &&
+                IsAimReferenceInsideCompensatedStableBox(captureBounds, stableDetection, aimReferencePoint, settings))
             {
                 ClearControlTarget();
                 return;
@@ -163,6 +165,7 @@ internal sealed class AimAssistController
             lastTargetUpdateFrameVersion = processedFrameVersion;
             lastControlCaptureBounds = captureBounds;
             lastControlStableDetection = stableDetection;
+            lastControlObservedTargetPoint = observedTargetPoint;
             state.LastPendingCompensationFrameVersion = processedFrameVersion;
         }
     }
@@ -192,19 +195,23 @@ internal sealed class AimAssistController
             }
 
             PointF aimReferencePoint = GetAimReferencePoint();
+            bool velocityFollow = ShouldVelocityFollow(targetPrediction.Velocity, settings);
             if (lastControlStableDetection is not null &&
+                !velocityFollow &&
                 IsAimReferenceInsideCompensatedStableBox(lastControlCaptureBounds, lastControlStableDetection, aimReferencePoint, settings))
             {
                 return;
             }
 
-            PointF observedTargetPoint = ApplyPendingCompensation(state.SmoothedTargetScreenPoint ?? state.LockedTargetScreenPoint ?? targetPrediction.PredictedPoint);
+            PointF observedTargetPoint = ApplyPendingCompensation(lastControlObservedTargetPoint);
             PointF predictedTargetPoint = ApplyPendingCompensation(targetPrediction.PredictedPoint);
-            PointF targetPoint = LimitCloseRangePrediction(observedTargetPoint, predictedTargetPoint, aimReferencePoint, settings);
+            PointF targetPoint = velocityFollow
+                ? predictedTargetPoint
+                : LimitCloseRangePrediction(observedTargetPoint, predictedTargetPoint, aimReferencePoint, settings);
             float distanceToAimPoint = AimMovementCalculator.GetDistanceToTarget(targetPoint, aimReferencePoint);
             float distanceToObservedAimPoint = AimMovementCalculator.GetDistanceToTarget(observedTargetPoint, aimReferencePoint);
             if (distanceToObservedAimPoint <= settings.DeadzonePixels &&
-                (distanceToAimPoint <= settings.DeadzonePixels * 1.5f || !ShouldVelocityFollow(targetPrediction.Velocity, settings)))
+                (distanceToAimPoint <= settings.DeadzonePixels * 1.5f || !velocityFollow))
             {
                 lastControlMove = Point.Empty;
                 lastControlMoveTick = 0;
@@ -220,13 +227,21 @@ internal sealed class AimAssistController
                 ? Math.Clamp((now - lastControlMoveTick) / 1000f, 0.001f, MaxControlDeltaSeconds)
                 : 1f / 60f;
             float controlSmoothingFactor = Math.Min(MaxControlSmoothingFactor, GetFrameRateAdjustedBlend(settings.SmoothingFactor, controlDeltaSeconds));
-            AimRuntimeSettings controlSettings = settings with { SmoothingFactor = controlSmoothingFactor };
+            AimRuntimeSettings controlSettings = settings with
+            {
+                SmoothingFactor = controlSmoothingFactor,
+                CloseRangeSlowdownPixels = velocityFollow ? settings.DeadzonePixels + 1f : settings.CloseRangeSlowdownPixels
+            };
 
             finalMove = AimMovementCalculator.CalculateMove(targetPoint, aimReferencePoint, controlSettings, distanceToAimPoint, targetPrediction.Velocity, controlDeltaSeconds);
-            finalMove = ClampMoveToObservedTarget(finalMove, observedTargetPoint, aimReferencePoint, settings);
-            finalMove = LimitMoveAcceleration(finalMove, lastControlMove, targetPoint, aimReferencePoint, settings);
-            finalMove = ClampMoveNoOvershoot(finalMove, observedTargetPoint, aimReferencePoint, settings);
-            if (lastControlStableDetection is not null)
+            finalMove = ClampMoveToObservedTarget(finalMove, observedTargetPoint, aimReferencePoint, settings, velocityFollow);
+            if (!velocityFollow)
+            {
+                finalMove = LimitMoveAcceleration(finalMove, lastControlMove, targetPoint, aimReferencePoint, settings);
+            }
+
+            finalMove = ClampMoveNoOvershoot(finalMove, observedTargetPoint, aimReferencePoint, settings, velocityFollow);
+            if (!velocityFollow && lastControlStableDetection is not null)
             {
                 finalMove = ClampMoveToCompensatedStableBox(finalMove, lastControlCaptureBounds, lastControlStableDetection, aimReferencePoint, settings);
             }
@@ -384,7 +399,7 @@ internal sealed class AimAssistController
             observedTargetPoint.Y + (predictionOffsetY * offsetScale));
     }
 
-    private static Point ClampMoveToObservedTarget(Point move, PointF observedTargetPoint, PointF aimReferencePoint, AimRuntimeSettings settings)
+    private static Point ClampMoveToObservedTarget(Point move, PointF observedTargetPoint, PointF aimReferencePoint, AimRuntimeSettings settings, bool velocityFollow)
     {
         if (move.IsEmpty)
         {
@@ -396,7 +411,7 @@ internal sealed class AimAssistController
         float observedDistance = MathF.Sqrt((observedOffsetX * observedOffsetX) + (observedOffsetY * observedOffsetY));
         if (observedDistance <= settings.DeadzonePixels)
         {
-            return Point.Empty;
+            return velocityFollow ? move : Point.Empty;
         }
 
         float unitX = observedOffsetX / observedDistance;
@@ -410,7 +425,9 @@ internal sealed class AimAssistController
         forwardMove = Math.Clamp(forwardMove, 0f, maxForwardMove);
 
         float closeRangePixels = Math.Max(settings.CloseRangeSlowdownPixels, settings.DeadzonePixels + 1f);
-        float lateralScale = Math.Clamp((observedDistance - settings.DeadzonePixels) / (closeRangePixels - settings.DeadzonePixels), 0f, 1f);
+        float lateralScale = velocityFollow
+            ? 1f
+            : Math.Clamp((observedDistance - settings.DeadzonePixels) / (closeRangePixels - settings.DeadzonePixels), 0f, 1f);
         lateralMoveX *= lateralScale;
         lateralMoveY *= lateralScale;
 
@@ -450,7 +467,7 @@ internal sealed class AimAssistController
             (int)Math.Round(previousMove.Y + (deltaY * scale)));
     }
 
-    private static Point ClampMoveNoOvershoot(Point move, PointF targetPoint, PointF aimReferencePoint, AimRuntimeSettings settings)
+    private static Point ClampMoveNoOvershoot(Point move, PointF targetPoint, PointF aimReferencePoint, AimRuntimeSettings settings, bool velocityFollow)
     {
         if (move.IsEmpty)
         {
@@ -463,7 +480,7 @@ internal sealed class AimAssistController
         float stopDistance = Math.Max(1f, settings.DeadzonePixels * 0.85f);
         if (distance <= stopDistance)
         {
-            return Point.Empty;
+            return velocityFollow ? move : Point.Empty;
         }
 
         float unitX = errorX / distance;
@@ -471,7 +488,12 @@ internal sealed class AimAssistController
         float forwardMove = (move.X * unitX) + (move.Y * unitY);
         if (forwardMove <= 0f)
         {
-            return Point.Empty;
+            return velocityFollow ? move : Point.Empty;
+        }
+
+        if (velocityFollow)
+        {
+            return move;
         }
 
         float maxForwardMove = Math.Max(0f, distance - stopDistance);
