@@ -155,7 +155,7 @@ internal sealed class AimAssistController
             if (!ShouldVelocityFollow(targetPrediction.Velocity, settings) &&
                 IsAimReferenceInsideCompensatedStableBox(captureBounds, stableDetection, aimReferencePoint, settings))
             {
-                ClearControlTarget();
+                CompletePullCycle(processedFrameVersion);
                 return;
             }
 
@@ -200,6 +200,7 @@ internal sealed class AimAssistController
                 !velocityFollow &&
                 IsAimReferenceInsideCompensatedStableBox(lastControlCaptureBounds, lastControlStableDetection, aimReferencePoint, settings))
             {
+                CompletePullCycle(lastTargetUpdateFrameVersion);
                 return;
             }
 
@@ -680,6 +681,25 @@ internal sealed class AimAssistController
         pendingAimMoves.Clear();
         state.PendingAimCompensation = PointF.Empty;
         state.LastPendingCompensationFrameVersion = -1;
+    }
+
+    private void CompletePullCycle(int suspendUntilFrameVersion)
+    {
+        state.ResetTracking();
+        targetPredictor.Reset();
+        hasControlTarget = false;
+        lastTargetUpdateTick = 0;
+        lastTargetCapturedTick = 0;
+        lastTargetUpdateFrameVersion = -1;
+        lastControlCaptureBounds = Rectangle.Empty;
+        lastControlStableDetection = null;
+        lastControlObservedTargetPoint = PointF.Empty;
+        lastControlMove = Point.Empty;
+        lastControlMoveTick = 0;
+        pendingAimMoves.Clear();
+        state.PendingAimCompensation = PointF.Empty;
+        state.LastPendingCompensationFrameVersion = -1;
+        state.SuspendAimUntilFrameVersion = Math.Max(state.SuspendAimUntilFrameVersion, suspendUntilFrameVersion);
     }
 
     private static PointF GetAimReferencePoint()
