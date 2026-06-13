@@ -17,6 +17,8 @@ public partial class Form1
             "TensorRt" => 1,
             nameof(DetectorBackend.ColorRectangle) => 2,
             "ColorDetection" => 2,
+            nameof(DetectorBackend.ColorPriorityTensorRtEngine) => 3,
+            "ColorPriorityTensorRt" => 3,
             _ => 0
         };
         chkCenterRoi.Checked = settings.CenterRoiOnly;
@@ -28,21 +30,9 @@ public partial class Form1
         SetNumericValue(numAimHeightPercent, settings.AimHeightPercent);
         SetNumericValue(numAimDeadzone, settings.AimDeadzone);
         SetNumericValue(numAimSmoothing, settings.AimSmoothingPercent);
-        SetNumericValue(numAimSpeedMultiplier, settings.AimSpeedMultiplierPercent);
         SetNumericValue(numAimMaxStep, settings.AimMaxStep);
-        SetNumericValue(numAimSwitchDistance, settings.AimSwitchDistance);
-        SetNumericValue(numAimMaxMissedFrames, settings.AimMaxMissedFrames);
-        SetNumericValue(numAimFireGracePeriod, settings.AimFireGracePeriodMs);
-        SetNumericValue(numAimTrackingBlend, settings.AimTrackingBlendPercent);
-        SetNumericValue(numAimCloseRangeSlowdown, settings.AimCloseRangeSlowdownPixels);
         SetNumericValue(numAimMoveCooldown, settings.AimMoveCooldownMs);
-        SetNumericValue(numAimPredictionLead, settings.AimPredictionLeadMs);
-        SetNumericValue(numAimMaxPrediction, settings.AimMaxPredictionPixels);
-        SetNumericValue(numAimVelocityFeedForward, settings.AimVelocityFeedForwardMaxPixels);
-        SetNumericValue(numAimInitialAcquireDistance, settings.AimInitialAcquireDistancePixels);
-        SetNumericValue(numAimTrackedAcquireDistance, settings.AimTrackedAcquireDistancePixels);
-        SetNumericValue(numAimStopInsideBoxArea, settings.AimStopLockSquareSizePixels);
-        SetNumericValue(numAimStopBoxTopOffset, settings.AimStopLockTopOffsetPixels);
+        SetNumericValue(numAimCalibrationStep, settings.AimCalibrationStepPixels);
         currentPrimaryColorDetectionOptions = settings.PrimaryColorDetection ?? ColorDetectionOptions.Default;
         UpdatePickedColorText("已加载颜色检测色值");
         UpdateInferenceBackendUi();
@@ -60,21 +50,9 @@ public partial class Form1
             (int)numAimHeightPercent.Value,
             (int)numAimDeadzone.Value,
             (int)numAimSmoothing.Value,
-            (int)numAimSpeedMultiplier.Value,
             (int)numAimMaxStep.Value,
-            (int)numAimSwitchDistance.Value,
-            (int)numAimMaxMissedFrames.Value,
-            (int)numAimFireGracePeriod.Value,
-            (int)numAimTrackingBlend.Value,
-            (int)numAimCloseRangeSlowdown.Value,
             (int)numAimMoveCooldown.Value,
-            (int)numAimPredictionLead.Value,
-            (int)numAimMaxPrediction.Value,
-            (int)numAimVelocityFeedForward.Value,
-            (int)numAimInitialAcquireDistance.Value,
-            (int)numAimTrackedAcquireDistance.Value,
-            (int)numAimStopInsideBoxArea.Value,
-            (int)numAimStopBoxTopOffset.Value,
+            (int)numAimCalibrationStep.Value,
             GetSelectedBackend().ToString(),
             currentPrimaryColorDetectionOptions);
 

@@ -11,11 +11,11 @@ internal sealed record DetectionStartupPlan(DetectorBackend Backend, string? Dir
         string? directMlModelPath = backend == DetectorBackend.OnnxRuntimeDirectMl
             ? ModelPathResolver.ResolveDirectMlModelPath()
             : null;
-        string? tensorRtEnginePath = backend == DetectorBackend.TensorRtEngine
+        string? tensorRtEnginePath = backend == DetectorBackend.TensorRtEngine || backend == DetectorBackend.ColorPriorityTensorRtEngine
             ? ModelPathResolver.ResolveTensorRtEnginePath()
             : null;
 
-        if (backend == DetectorBackend.TensorRtEngine && string.IsNullOrWhiteSpace(tensorRtEnginePath))
+        if ((backend == DetectorBackend.TensorRtEngine || backend == DetectorBackend.ColorPriorityTensorRtEngine) && string.IsNullOrWhiteSpace(tensorRtEnginePath))
         {
             plan = new DetectionStartupPlan(backend, directMlModelPath, tensorRtEnginePath);
             errorMessage = "未找到 TensorRT engine 文件。";
@@ -39,6 +39,7 @@ internal sealed record DetectionStartupPlan(DetectorBackend Backend, string? Dir
         return Backend switch
         {
             DetectorBackend.TensorRtEngine => "TensorRT Engine",
+            DetectorBackend.ColorPriorityTensorRtEngine => "颜色优先 + TensorRT Engine",
             DetectorBackend.ColorRectangle => "颜色检测",
             _ => "ONNX Runtime / DirectML"
         };
@@ -46,7 +47,7 @@ internal sealed record DetectionStartupPlan(DetectorBackend Backend, string? Dir
 
     public string GetStartupStatusText(CaptureRuntimeSettings captureSettings)
     {
-        string engineText = Backend == DetectorBackend.TensorRtEngine
+        string engineText = Backend == DetectorBackend.TensorRtEngine || Backend == DetectorBackend.ColorPriorityTensorRtEngine
             ? $", engine={Path.GetFileName(TensorRtEnginePath)}"
             : string.Empty;
         string modelText = DirectMlModelPath is null ? string.Empty : $", 模型={Path.GetFileName(DirectMlModelPath)}";

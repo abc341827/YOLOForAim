@@ -22,6 +22,9 @@ internal static class DetectionBackendFactory
         return startupPlan.Backend switch
         {
             DetectorBackend.TensorRtEngine => new TensorRtEngineDetector(startupPlan.TensorRtEnginePath!, detectorOptions),
+            DetectorBackend.ColorPriorityTensorRtEngine => new ColorPriorityDetector(
+                new ColorRectangleDetector(detectorOptions),
+                new TensorRtEngineDetector(startupPlan.TensorRtEnginePath!, detectorOptions)),
             DetectorBackend.ColorRectangle => new ColorRectangleDetector(detectorOptions),
             _ => new YoloDetector(startupPlan.DirectMlModelPath!, detectorOptions)
         };

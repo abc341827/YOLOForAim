@@ -9,11 +9,17 @@ internal interface IDetector : IDisposable
     DetectionRunResult Detect(byte[] sourcePixels, int sourceWidth, int sourceHeight, int sourceStride, Rectangle sourceRegion, int referenceWidth);
 }
 
+internal interface IColorDetectionOptionsSink
+{
+    void UpdateColorDetectionOptions(ColorDetectionOptions primaryOptions);
+}
+
 internal enum DetectorBackend
 {
     OnnxRuntimeDirectMl,
     TensorRtEngine,
-    ColorRectangle
+    ColorRectangle,
+    ColorPriorityTensorRtEngine
 }
 
 internal sealed record DetectionResult(RectangleF Box, float Score, int ClassId, string Label);

@@ -22,19 +22,21 @@ internal sealed record AimRuntimeSettings(
     float InitialAcquireDistancePixels,
     float TrackedAcquireDistancePixels,
     float StopLockSquareSizePixels,
-    float StopLockTopOffsetPixels)
+    float StopLockTopOffsetPixels,
+    bool CalibrationMode,
+    float CalibrationStepPixels)
 {
     public static AimRuntimeSettings Default { get; } = new(
-        20f,
-        12f,
-        0.35f,
+        0f,
+        4f,
         1f,
-        36f,
-        140f,
-        3,
+        1f,
+        100f,
+        1000f,
+        1,
         UiSettings.DefaultAimAssistFireGracePeriodMs,
-        UiSettings.DefaultAimTargetTrackingBlendPercent / 100f,
-        UiSettings.DefaultAimCloseRangeSlowdownPixels,
+        1f,
+        5f,
         UiSettings.DefaultAimMoveCooldownMs,
         UiSettings.DefaultAimPredictionLeadMs,
         UiSettings.DefaultAimMaxPredictionPixels,
@@ -42,5 +44,7 @@ internal sealed record AimRuntimeSettings(
         UiSettings.DefaultAimInitialAcquireDistancePixels,
         UiSettings.DefaultAimTrackedAcquireDistancePixels,
         UiSettings.DefaultAimStopLockSquareSizePixels,
-        UiSettings.DefaultAimStopLockTopOffsetPixels);
+        UiSettings.DefaultAimStopLockTopOffsetPixels,
+        false,
+        UiSettings.DefaultAimCalibrationStepPixels);
 }

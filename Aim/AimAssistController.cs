@@ -38,6 +38,18 @@ internal sealed class AimAssistController
     private Point lastControlMove = Point.Empty;
     private long lastControlMoveTick;
     private readonly List<PendingAimMove> pendingAimMoves = new();
+    private PointF lastCalibrationError;
+    private Point lastCalibrationMove;
+    private long lastCalibrationMoveSentTick;
+    private int calibrationSampleCount;
+    private int calibrationSampleCountX;
+    private int calibrationSampleCountY;
+    private float calibrationSumPixelsPerMouseUnitX;
+    private float calibrationSumPixelsPerMouseUnitY;
+    private float calibratedPixelsPerMouseUnitX;
+    private float calibratedPixelsPerMouseUnitY;
+    private bool isCalibrationActive;
+    private string calibrationDiagnostics = string.Empty;
 
     public AimAssistController()
     {
@@ -45,6 +57,17 @@ internal sealed class AimAssistController
         targetPredictor = new AimTargetPredictor(state);
         assistGate = new AimAssistGate(state);
         missTracker = new AimMissTracker(state);
+    }
+
+    public string CalibrationDiagnostics
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return calibrationDiagnostics;
+            }
+        }
     }
 
     public DetectionResult? StabilizedLockedDetection
@@ -76,6 +99,27 @@ internal sealed class AimAssistController
             state.ResetRuntime();
             ClearControlTarget();
             targetPredictor.Reset();
+            isCalibrationActive = false;
+        }
+    }
+
+    public void StartCalibration()
+    {
+        lock (syncRoot)
+        {
+            ResetTrackingCore();
+            pendingAimMoves.Clear();
+            state.PendingAimCompensation = PointF.Empty;
+            isCalibrationActive = true;
+            lastCalibrationError = PointF.Empty;
+            lastCalibrationMove = Point.Empty;
+            lastCalibrationMoveSentTick = 0;
+            calibrationSampleCount = 0;
+            calibrationSampleCountX = 0;
+            calibrationSampleCountY = 0;
+            calibrationSumPixelsPerMouseUnitX = 0f;
+            calibrationSumPixelsPerMouseUnitY = 0f;
+            calibrationDiagnostics = "校准模式: 已启动。请保持目标可见，程序会慢慢把检测框移动到窗口中心。";
         }
     }
 
@@ -97,7 +141,8 @@ internal sealed class AimAssistController
                 return;
             }
 
-            if (captureBounds.IsEmpty || !assistGate.IsAssistActive(settings, now))
+            bool calibrationMode = IsCalibrationMode(settings);
+            if (captureBounds.IsEmpty || (!calibrationMode && !assistGate.IsAssistActive(settings, now)))
             {
                 ResetTrackingCore();
                 return;
@@ -127,7 +172,7 @@ internal sealed class AimAssistController
                 return;
             }
 
-            DetectionResult currentDetection = nearestDetection.Detection;
+            DetectionResult currentDetection = AimPointCalculator.GetControlDetection(nearestDetection.Detection, settings, targetWindowWidth);
             bool resetTargetTracking = state.StabilizedLockedDetection is null || !IsLikelySameLockedTarget(currentDetection, captureBounds, settings, targetWindowWidth);
             PointF rawObservedTargetPoint = GetAimPoint(captureBounds, currentDetection, settings, targetWindowWidth);
             if (ShouldRejectSuddenTargetJump(rawObservedTargetPoint, resetTargetTracking, settings))
@@ -142,6 +187,7 @@ internal sealed class AimAssistController
 
             DetectionResult stableDetection = targetStabilizer.GetStabilizedDetection(currentDetection, captureBounds, resetTargetTracking);
             PointF observedTargetPoint = GetAimPoint(captureBounds, stableDetection, settings, targetWindowWidth);
+            UpdateCalibrationObservation(observedTargetPoint, aimReferencePoint, capturedTick, settings);
             TargetPrediction targetPrediction = targetPredictor.Predict(observedTargetPoint, resetTargetTracking, now, capturedTick, settings);
             PointF targetPoint = targetPrediction.PredictedPoint;
             state.LockedTargetScreenPoint = GetAimPoint(captureBounds, currentDetection, settings, targetWindowWidth);
@@ -151,13 +197,6 @@ internal sealed class AimAssistController
             missTracker.RegisterHit();
             state.PendingTargetSwitchTick = 0;
             state.HasAppliedInitialLockPull = true;
-
-            if (!ShouldVelocityFollow(targetPrediction.Velocity, settings) &&
-                IsAimReferenceInsideCompensatedStableBox(captureBounds, stableDetection, aimReferencePoint, settings))
-            {
-                CompletePullCycle(processedFrameVersion);
-                return;
-            }
 
             hasControlTarget = true;
             lastTargetUpdateTick = now;
@@ -177,7 +216,8 @@ internal sealed class AimAssistController
         lock (syncRoot)
         {
             long now = Environment.TickCount64;
-            bool assistActive = assistGate.IsAssistActive(settings, now);
+            bool calibrationMode = IsCalibrationMode(settings);
+            bool assistActive = calibrationMode || assistGate.IsAssistActive(settings, now);
             if (!hasControlTarget || !assistActive)
             {
                 if (!assistActive)
@@ -196,25 +236,19 @@ internal sealed class AimAssistController
             }
 
             PointF aimReferencePoint = GetAimReferencePoint(lastControlAimReferenceBounds);
-            bool velocityFollow = ShouldVelocityFollow(targetPrediction.Velocity, settings);
-            if (lastControlStableDetection is not null &&
-                !velocityFollow &&
-                IsAimReferenceInsideCompensatedStableBox(lastControlCaptureBounds, lastControlStableDetection, aimReferencePoint, settings))
-            {
-                CompletePullCycle(lastTargetUpdateFrameVersion);
-                return;
-            }
-
             PointF observedTargetPoint = ApplyPendingCompensation(lastControlObservedTargetPoint);
             PointF predictedTargetPoint = ApplyPendingCompensation(targetPrediction.PredictedPoint);
-            PointF targetPoint = velocityFollow
+            PointF targetPoint = settings.MaxPredictionPixels > 0f || settings.PredictionLeadMilliseconds > 0f
                 ? predictedTargetPoint
-                : LimitCloseRangePrediction(observedTargetPoint, predictedTargetPoint, aimReferencePoint, settings);
+                : observedTargetPoint;
             float distanceToAimPoint = AimMovementCalculator.GetDistanceToTarget(targetPoint, aimReferencePoint);
-            float distanceToObservedAimPoint = AimMovementCalculator.GetDistanceToTarget(observedTargetPoint, aimReferencePoint);
-            if (distanceToObservedAimPoint <= settings.DeadzonePixels &&
-                (distanceToAimPoint <= settings.DeadzonePixels * 1.5f || !velocityFollow))
+            if (distanceToAimPoint <= settings.DeadzonePixels)
             {
+                if (calibrationMode)
+                {
+                    CompleteCalibration();
+                }
+
                 lastControlMove = Point.Empty;
                 lastControlMoveTick = 0;
                 return;
@@ -225,28 +259,14 @@ internal sealed class AimAssistController
                 return;
             }
 
-            float controlDeltaSeconds = lastControlMoveTick > 0
-                ? Math.Clamp((now - lastControlMoveTick) / 1000f, 0.001f, MaxControlDeltaSeconds)
-                : 1f / 60f;
-            float controlSmoothingFactor = Math.Min(MaxControlSmoothingFactor, GetFrameRateAdjustedBlend(settings.SmoothingFactor, controlDeltaSeconds));
-            AimRuntimeSettings controlSettings = settings with
+            if (calibrationMode && !state.PendingAimCompensation.IsEmpty)
             {
-                SmoothingFactor = controlSmoothingFactor,
-                CloseRangeSlowdownPixels = velocityFollow ? settings.DeadzonePixels + 1f : settings.CloseRangeSlowdownPixels
-            };
-
-            finalMove = AimMovementCalculator.CalculateMove(targetPoint, aimReferencePoint, controlSettings, distanceToAimPoint, targetPrediction.Velocity, controlDeltaSeconds);
-            finalMove = ClampMoveToObservedTarget(finalMove, observedTargetPoint, aimReferencePoint, settings, velocityFollow);
-            if (!velocityFollow)
-            {
-                finalMove = LimitMoveAcceleration(finalMove, lastControlMove, targetPoint, aimReferencePoint, settings);
+                return;
             }
 
-            finalMove = ClampMoveNoOvershoot(finalMove, observedTargetPoint, aimReferencePoint, settings, velocityFollow);
-            if (!velocityFollow && lastControlStableDetection is not null)
-            {
-                finalMove = ClampMoveToCompensatedStableBox(finalMove, lastControlCaptureBounds, lastControlStableDetection, aimReferencePoint, settings);
-            }
+            finalMove = calibrationMode
+                ? CalculateCalibrationMove(targetPoint, aimReferencePoint, settings)
+                : CalculateDirectCenteringMove(targetPoint, aimReferencePoint, settings, targetPrediction.Velocity, calibratedPixelsPerMouseUnitX, calibratedPixelsPerMouseUnitY);
 
             if (finalMove.IsEmpty)
             {
@@ -258,6 +278,13 @@ internal sealed class AimAssistController
             lastControlMoveTick = now;
             SendRelativeMouseMove(finalMove.X, finalMove.Y);
             long sentTick = Environment.TickCount64;
+            if (calibrationMode)
+            {
+                lastCalibrationError = new PointF(targetPoint.X - aimReferencePoint.X, targetPoint.Y - aimReferencePoint.Y);
+                lastCalibrationMove = finalMove;
+                lastCalibrationMoveSentTick = sentTick;
+            }
+
             RegisterPendingAimMove(finalMove, sentTick);
             assistGate.MarkMoveSent(sentTick);
             ResetPullStateForNextDetection();
@@ -290,7 +317,7 @@ internal sealed class AimAssistController
             lockedAnchor,
             maxCandidateDistancePixels,
             containingPaddingPixels,
-            detection => GetAimPoint(captureBounds, detection, settings, targetWindowWidth));
+            detection => GetAimPoint(captureBounds, AimPointCalculator.GetControlDetection(detection, settings, targetWindowWidth), settings, targetWindowWidth));
     }
 
     private TargetCandidate? FindCurrentFrameLockedTarget(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, AimRuntimeSettings settings, int targetWindowWidth)
@@ -303,14 +330,15 @@ internal sealed class AimAssistController
 
         foreach (DetectionResult detection in detections)
         {
-            if (detection.ClassId != lockedDetection.ClassId)
+            DetectionResult controlDetection = AimPointCalculator.GetControlDetection(detection, settings, targetWindowWidth);
+            if (controlDetection.ClassId != lockedDetection.ClassId)
             {
                 continue;
             }
 
-            PointF currentCenter = GetBoxCenter(detection.Box);
+            PointF currentCenter = GetBoxCenter(controlDetection.Box);
             double centerDistanceSquared = GetDistanceSquared(lockedCenter, currentCenter);
-            float iou = CalculateIou(lockedDetection.Box, detection.Box);
+            float iou = CalculateIou(lockedDetection.Box, controlDetection.Box);
             if (iou < LockedTargetMatchMinIou && centerDistanceSquared > maxCenterDistanceSquared)
             {
                 continue;
@@ -322,8 +350,8 @@ internal sealed class AimAssistController
                 continue;
             }
 
-            PointF targetPoint = GetAimPoint(captureBounds, detection, settings, targetWindowWidth);
-            bestCandidate = new TargetCandidate(detection, targetPoint, GetDistanceSquared(state.SmoothedTargetScreenPoint ?? state.LockedTargetScreenPoint ?? targetPoint, targetPoint));
+            PointF targetPoint = GetAimPoint(captureBounds, controlDetection, settings, targetWindowWidth);
+            bestCandidate = new TargetCandidate(controlDetection, targetPoint, GetDistanceSquared(state.SmoothedTargetScreenPoint ?? state.LockedTargetScreenPoint ?? targetPoint, targetPoint));
             bestScore = score;
         }
 
@@ -370,6 +398,133 @@ internal sealed class AimAssistController
         float velocityPixelsPerSecond = MathF.Sqrt((targetVelocity.X * targetVelocity.X) + (targetVelocity.Y * targetVelocity.Y));
         float minFollowVelocity = Math.Max(80f, settings.DeadzonePixels * 8f);
         return velocityPixelsPerSecond >= minFollowVelocity;
+    }
+
+    private static Point CalculateDirectCenteringMove(PointF targetPoint, PointF aimReferencePoint, AimRuntimeSettings settings, PointF targetVelocity, float calibratedPixelsPerMouseUnitX, float calibratedPixelsPerMouseUnitY)
+    {
+        float errorX = targetPoint.X - aimReferencePoint.X;
+        float errorY = targetPoint.Y - aimReferencePoint.Y;
+        float distance = MathF.Sqrt((errorX * errorX) + (errorY * errorY));
+        if (distance <= settings.DeadzonePixels)
+        {
+            return Point.Empty;
+        }
+
+        float gain = Math.Max(0.01f, settings.SmoothingFactor * settings.SpeedMultiplier);
+        float moveX = MathF.Abs(calibratedPixelsPerMouseUnitX) > 0.001f
+            ? (errorX / calibratedPixelsPerMouseUnitX) * gain
+            : errorX * gain;
+        float moveY = MathF.Abs(calibratedPixelsPerMouseUnitY) > 0.001f
+            ? (errorY / calibratedPixelsPerMouseUnitY) * gain
+            : errorY * gain;
+        if (settings.VelocityFeedForwardMaxPixels > 0f)
+        {
+            float feedForwardSeconds = Math.Clamp(settings.PredictionLeadMilliseconds / 1000f, 0f, 0.085f);
+            float feedForwardX = targetVelocity.X * feedForwardSeconds * settings.SpeedMultiplier;
+            float feedForwardY = targetVelocity.Y * feedForwardSeconds * settings.SpeedMultiplier;
+            float feedForwardDistance = MathF.Sqrt((feedForwardX * feedForwardX) + (feedForwardY * feedForwardY));
+            if (feedForwardDistance > settings.VelocityFeedForwardMaxPixels && feedForwardDistance > 0.001f)
+            {
+                float feedForwardScale = settings.VelocityFeedForwardMaxPixels / feedForwardDistance;
+                feedForwardX *= feedForwardScale;
+                feedForwardY *= feedForwardScale;
+            }
+
+            moveX += feedForwardX;
+            moveY += feedForwardY;
+        }
+
+        return ClampMoveLength(moveX, moveY, Math.Max(1f, settings.MaxStepPixels * Math.Max(0.01f, settings.SpeedMultiplier)));
+    }
+
+    private static Point CalculateCalibrationMove(PointF targetPoint, PointF aimReferencePoint, AimRuntimeSettings settings)
+    {
+        float errorX = targetPoint.X - aimReferencePoint.X;
+        float errorY = targetPoint.Y - aimReferencePoint.Y;
+        float distance = MathF.Sqrt((errorX * errorX) + (errorY * errorY));
+        if (distance <= settings.DeadzonePixels)
+        {
+            return Point.Empty;
+        }
+
+        return ClampMoveLength(errorX, errorY, Math.Max(1f, settings.CalibrationStepPixels));
+    }
+
+    private static Point ClampMoveLength(float moveX, float moveY, float maxMove)
+    {
+        float moveDistance = MathF.Sqrt((moveX * moveX) + (moveY * moveY));
+        if (moveDistance <= 0.001f)
+        {
+            return Point.Empty;
+        }
+
+        if (moveDistance > maxMove)
+        {
+            float scale = maxMove / moveDistance;
+            moveX *= scale;
+            moveY *= scale;
+        }
+
+        return new Point((int)Math.Round(moveX), (int)Math.Round(moveY));
+    }
+
+    private void UpdateCalibrationObservation(PointF observedTargetPoint, PointF aimReferencePoint, long capturedTick, AimRuntimeSettings settings)
+    {
+        if (!IsCalibrationMode(settings))
+        {
+            return;
+        }
+
+        PointF currentError = new(observedTargetPoint.X - aimReferencePoint.X, observedTargetPoint.Y - aimReferencePoint.Y);
+        if (lastCalibrationMoveSentTick > 0 && capturedTick > lastCalibrationMoveSentTick)
+        {
+            float reducedX = lastCalibrationError.X - currentError.X;
+            float reducedY = lastCalibrationError.Y - currentError.Y;
+            if (lastCalibrationMove.X != 0 && MathF.Abs(reducedX) > 0.01f)
+            {
+                calibrationSumPixelsPerMouseUnitX += reducedX / lastCalibrationMove.X;
+                calibrationSampleCountX++;
+            }
+
+            if (lastCalibrationMove.Y != 0 && MathF.Abs(reducedY) > 0.01f)
+            {
+                calibrationSumPixelsPerMouseUnitY += reducedY / lastCalibrationMove.Y;
+                calibrationSampleCountY++;
+            }
+
+            calibrationSampleCount++;
+            lastCalibrationMoveSentTick = 0;
+        }
+
+        float averageX = calibrationSampleCountX > 0 ? calibrationSumPixelsPerMouseUnitX / calibrationSampleCountX : calibratedPixelsPerMouseUnitX;
+        float averageY = calibrationSampleCountY > 0 ? calibrationSumPixelsPerMouseUnitY / calibrationSampleCountY : calibratedPixelsPerMouseUnitY;
+        calibrationDiagnostics = $"校准模式: 当前误差=({currentError.X:F1},{currentError.Y:F1}) px, 上次指令=({lastCalibrationMove.X},{lastCalibrationMove.Y}), 样本={calibrationSampleCount}, 画面px/鼠标单位≈X:{averageX:F3} Y:{averageY:F3}";
+    }
+
+    private bool IsCalibrationMode(AimRuntimeSettings settings)
+    {
+        return isCalibrationActive || settings.CalibrationMode;
+    }
+
+    private void CompleteCalibration()
+    {
+        float averageX = calibrationSampleCountX > 0 ? calibrationSumPixelsPerMouseUnitX / calibrationSampleCountX : calibratedPixelsPerMouseUnitX;
+        float averageY = calibrationSampleCountY > 0 ? calibrationSumPixelsPerMouseUnitY / calibrationSampleCountY : calibratedPixelsPerMouseUnitY;
+        if (MathF.Abs(averageX) > 0.001f)
+        {
+            calibratedPixelsPerMouseUnitX = averageX;
+        }
+
+        if (MathF.Abs(averageY) > 0.001f)
+        {
+            calibratedPixelsPerMouseUnitY = averageY;
+        }
+
+        isCalibrationActive = false;
+        pendingAimMoves.Clear();
+        state.PendingAimCompensation = PointF.Empty;
+        calibrationDiagnostics = $"校准完成: 画面px/鼠标单位 X={calibratedPixelsPerMouseUnitX:F3}, Y={calibratedPixelsPerMouseUnitY:F3}。左键瞄准将按该比例换算移动。";
+        ResetPullStateForNextDetection();
     }
 
     private static PointF LimitCloseRangePrediction(PointF observedTargetPoint, PointF predictedTargetPoint, PointF aimReferencePoint, AimRuntimeSettings settings)

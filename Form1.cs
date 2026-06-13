@@ -8,23 +8,27 @@ namespace YOLOForAim
     public partial class Form1 : Form
     {
         private const int HotKeyIdToggleDetection = 1;
+        private const int HotKeyIdStartAimCalibration = 2;
         private const int WM_HOTKEY = 0x0312;
         private const uint MOD_NONE = 0x0000;
         private const uint VK_Z = 0x5A;
+        private const uint VK_X = 0x58;
         private const int DefaultAimAssistFireGracePeriodMs = 120;
         private const int DefaultAimTargetTrackingBlendPercent = 35;
         private const int DefaultAimCloseRangeSlowdownPixels = 64;
-        private const int DefaultAimMoveCooldownMs = 10;
-        private const int DefaultAimPredictionLeadMs = 18;
-        private const int DefaultAimMaxPredictionPixels = 58;
-        private const int DefaultAimVelocityFeedForwardMaxPixels = 10;
-        private const int DefaultAimInitialAcquireDistancePixels = 240;
-        private const int DefaultAimTrackedAcquireDistancePixels = 90;
+        private const int DefaultAimMoveCooldownMs = 0;
+        private const int DefaultAimPredictionLeadMs = 0;
+        private const int DefaultAimMaxPredictionPixels = 0;
+        private const int DefaultAimVelocityFeedForwardMaxPixels = 0;
+        private const int DefaultAimInitialAcquireDistancePixels = 1000;
+        private const int DefaultAimTrackedAcquireDistancePixels = 1000;
         private const int DefaultAimStopLockSquareSizePixels = 36;
         private const int DefaultAimStopLockTopOffsetPixels = 18;
+        private const int DefaultAimCalibrationStepPixels = 8;
         private const int PickScreenColorDelayMs = 1500;
         private IntPtr selectedHwnd = IntPtr.Zero;
         private bool hotKeyRegistered;
+        private bool calibrationHotKeyRegistered;
         private CancellationTokenSource? detectionCancellationTokenSource;
         private Task? captureTask;
         private Task? inferenceTask;
@@ -58,11 +62,10 @@ namespace YOLOForAim
             chkCenterRoi.Checked = false;
             numRoiSize.Value = 640;
             numPreviewInterval.Value = 1;
-            numAimHeightPercent.Value = 20;
-            numAimDeadzone.Value = 12;
-            numAimSmoothing.Value = 35;
+            numAimDeadzone.Value = 4;
+            numAimSmoothing.Value = 100;
             numAimSpeedMultiplier.Value = 100;
-            numAimMaxStep.Value = 36;
+            numAimMaxStep.Value = 100;
             numAimSwitchDistance.Value = 140;
             numAimMaxMissedFrames.Value = 3;
             numAimFireGracePeriod.Value = DefaultAimAssistFireGracePeriodMs;
@@ -76,12 +79,17 @@ namespace YOLOForAim
             numAimTrackedAcquireDistance.Value = DefaultAimTrackedAcquireDistancePixels;
             numAimStopInsideBoxArea.Value = DefaultAimStopLockSquareSizePixels;
             numAimStopBoxTopOffset.Value = DefaultAimStopLockTopOffsetPixels;
+            chkAimCalibrationMode.Checked = false;
+            numAimCalibrationStep.Value = DefaultAimCalibrationStepPixels;
+            ConfigureSimplifiedAimUi();
             numScoreThreshold.Value = 35;
             cmbInferenceBackend.SelectedIndex = 0;
             numAimInitialAcquireDistance.ValueChanged += AimRuntimeSetting_ValueChanged;
             numAimTrackedAcquireDistance.ValueChanged += AimRuntimeSetting_ValueChanged;
             numAimStopInsideBoxArea.ValueChanged += AimRuntimeSetting_ValueChanged;
             numAimStopBoxTopOffset.ValueChanged += AimRuntimeSetting_ValueChanged;
+            chkAimCalibrationMode.CheckedChanged += AimRuntimeSetting_ValueChanged;
+            numAimCalibrationStep.ValueChanged += AimRuntimeSetting_ValueChanged;
             numAimHeightPercent.ValueChanged += AimRuntimeSetting_ValueChanged;
             numAimDeadzone.ValueChanged += AimRuntimeSetting_ValueChanged;
             numAimSmoothing.ValueChanged += AimRuntimeSetting_ValueChanged;
@@ -122,9 +130,15 @@ namespace YOLOForAim
             base.OnHandleCreated(e);
 
             hotKeyRegistered = RegisterHotKey(Handle, HotKeyIdToggleDetection, MOD_NONE, VK_Z);
+            calibrationHotKeyRegistered = RegisterHotKey(Handle, HotKeyIdStartAimCalibration, MOD_NONE, VK_X);
             if (!hotKeyRegistered)
             {
                 MessageBox.Show("全局快捷键 Z 注册失败。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+
+            if (!calibrationHotKeyRegistered)
+            {
+                MessageBox.Show("全局快捷键 X 注册失败。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
@@ -134,6 +148,12 @@ namespace YOLOForAim
             {
                 UnregisterHotKey(Handle, HotKeyIdToggleDetection);
                 hotKeyRegistered = false;
+            }
+
+            if (calibrationHotKeyRegistered)
+            {
+                UnregisterHotKey(Handle, HotKeyIdStartAimCalibration);
+                calibrationHotKeyRegistered = false;
             }
 
             detectionCancellationTokenSource?.Cancel();
@@ -179,12 +199,31 @@ namespace YOLOForAim
                 return;
             }
 
+            if (m.Msg == WM_HOTKEY && m.WParam == (IntPtr)HotKeyIdStartAimCalibration)
+            {
+                BeginInvoke(new Action(StartAimCalibration));
+                return;
+            }
+
             base.WndProc(ref m);
         }
 
         private void AimRuntimeSetting_ValueChanged(object? sender, EventArgs e)
         {
             UpdateLiveAimRuntimeSettings();
+        }
+
+        private void StartAimCalibration()
+        {
+            if (captureTask is null || inferenceTask is null)
+            {
+                lblStatus.Text = "请先按 Z 开启检测，再按 X 校准。";
+                return;
+            }
+
+            aimAssistController.StartCalibration();
+            lblStatus.Text = "校准已启动：请保持目标可见，程序会慢慢把检测框移动到窗口中心。";
+            UpdateDiagnosticsText();
         }
 
         private CaptureRuntimeSettings ReadCaptureRuntimeSettingsFromUi()
@@ -220,15 +259,21 @@ namespace YOLOForAim
                 (float)numAimInitialAcquireDistance.Value,
                 (float)numAimTrackedAcquireDistance.Value,
                 (float)numAimStopInsideBoxArea.Value,
-                (float)numAimStopBoxTopOffset.Value);
+                (float)numAimStopBoxTopOffset.Value,
+                chkAimCalibrationMode.Checked,
+                (float)numAimCalibrationStep.Value);
         }
 
         private void UpdateDiagnosticsText()
         {
             string fpsLine = $"检测 FPS: {inferenceFpsCounter.CurrentFps:F1}";
-            txtDiagnostics.Text = string.IsNullOrWhiteSpace(diagnosticsHeader)
+            string aimCalibrationLine = aimAssistController.CalibrationDiagnostics;
+            string diagnosticsBody = string.IsNullOrWhiteSpace(aimCalibrationLine)
                 ? fpsLine
-                : $"{diagnosticsHeader}{Environment.NewLine}{Environment.NewLine}{fpsLine}";
+                : $"{fpsLine}{Environment.NewLine}{aimCalibrationLine}";
+            txtDiagnostics.Text = string.IsNullOrWhiteSpace(diagnosticsHeader)
+                ? diagnosticsBody
+                : $"{diagnosticsHeader}{Environment.NewLine}{Environment.NewLine}{diagnosticsBody}";
         }
 
         private void cmbInferenceBackend_SelectedIndexChanged(object? sender, EventArgs e)
@@ -282,10 +327,10 @@ namespace YOLOForAim
             (float hue, int saturation, int value) = RgbToHsv(color.R, color.G, color.B);
             currentPrimaryColorDetectionOptions = new ColorDetectionOptions(hue, saturation, value, 0f, 0, 0, color.R, color.G, color.B);
 
-            if (detector is ColorRectangleDetector colorRectangleDetector)
+            if (detector is IColorDetectionOptionsSink colorDetectionOptionsSink)
             {
-                colorRectangleDetector.UpdateColorDetectionOptions(currentPrimaryColorDetectionOptions);
-                diagnosticsHeader = colorRectangleDetector.ModelSummary;
+                colorDetectionOptionsSink.UpdateColorDetectionOptions(currentPrimaryColorDetectionOptions);
+                diagnosticsHeader = detector.ModelSummary;
                 UpdateDiagnosticsText();
             }
 
@@ -303,7 +348,7 @@ namespace YOLOForAim
         private void UpdateInferenceBackendUi()
         {
             DetectorBackend selectedBackend = GetSelectedBackend();
-            bool isTensorRt = selectedBackend == DetectorBackend.TensorRtEngine;
+            bool isTensorRt = selectedBackend == DetectorBackend.TensorRtEngine || selectedBackend == DetectorBackend.ColorPriorityTensorRtEngine;
             bool isColorDetection = selectedBackend == DetectorBackend.ColorRectangle;
             chkPreferGpu.Checked = isTensorRt || (!isColorDetection && chkPreferGpu.Checked);
             chkPreferGpu.Enabled = !isTensorRt && !isColorDetection;
@@ -318,6 +363,7 @@ namespace YOLOForAim
                 lblStatus.Text = selectedBackend switch
                 {
                     DetectorBackend.TensorRtEngine => $"TensorRT Engine 待命: engine={(enginePath is null ? "(未找到)" : Path.GetFileName(enginePath))}",
+                    DetectorBackend.ColorPriorityTensorRtEngine => $"颜色优先 + TensorRT 待命: RGB({currentPrimaryColorDetectionOptions.Red}, {currentPrimaryColorDetectionOptions.Green}, {currentPrimaryColorDetectionOptions.Blue})，engine={(enginePath is null ? "(未找到)" : Path.GetFileName(enginePath))}",
                     DetectorBackend.ColorRectangle => $"颜色检测待命: RGB({currentPrimaryColorDetectionOptions.Red}, {currentPrimaryColorDetectionOptions.Green}, {currentPrimaryColorDetectionOptions.Blue}) 严格单像素匹配",
                     _ => $"DirectML 待命: ONNX={Path.GetFileName(modelPath)}"
                 };
@@ -330,8 +376,57 @@ namespace YOLOForAim
             {
                 1 => DetectorBackend.TensorRtEngine,
                 2 => DetectorBackend.ColorRectangle,
+                3 => DetectorBackend.ColorPriorityTensorRtEngine,
                 _ => DetectorBackend.OnnxRuntimeDirectMl
             };
+        }
+
+        private void ConfigureSimplifiedAimUi()
+        {
+            lblAimHeightPercent.Text = "颜色偏移(px)";
+            toolTipDescriptions.SetToolTip(lblAimHeightPercent, "颜色检测返回的是单像素点，该值表示从命中像素底部继续向下偏移多少像素。YOLO 框模式不使用该参数。 ");
+            toolTipDescriptions.SetToolTip(numAimHeightPercent, "仅颜色检测模式使用。用于把单像素命中点换算到实际目标位置。 ");
+            lblAimDeadzone.Text = "中心死区(px)";
+            toolTipDescriptions.SetToolTip(lblAimDeadzone, "检测框瞄准点离窗口中心小于该值时不移动。建议 3~8。");
+            lblAimSmoothing.Text = "移动比例(%)";
+            toolTipDescriptions.SetToolTip(lblAimSmoothing, "按校准比例换算后，每次实际补偿误差的比例。100 表示按当前误差一步补齐。");
+            lblAimMaxStep.Text = "单次上限";
+            toolTipDescriptions.SetToolTip(lblAimMaxStep, "单次 SendInput 最大鼠标指令量。高频跟踪建议 100 以上，误检时可降低。 ");
+            lblAimMoveCooldown.Text = "移动间隔(ms)";
+            toolTipDescriptions.SetToolTip(lblAimMoveCooldown, "两次鼠标移动之间的最小间隔。0 表示尽可能高频。 ");
+            lblAimCalibrationStep.Text = "校准步长";
+            toolTipDescriptions.SetToolTip(lblAimCalibrationStep, "按 X 自动校准时每次发送的小步鼠标指令量。建议 5~12。 ");
+            lblParameterHint.Text = "当前模式：高频检测 + 高频中心伺服。按 Z 开启检测，按 X 自动校准鼠标单位与画面像素比例。";
+
+            numAimMaxStep.Maximum = 1000;
+            numAimMoveCooldown.Maximum = 50;
+            HideObsoleteAimControls();
+        }
+
+        private void HideObsoleteAimControls()
+        {
+            Control[] obsoleteControls =
+            {
+                lblAimSpeedMultiplier, numAimSpeedMultiplier,
+                lblAimSwitchDistance, numAimSwitchDistance,
+                lblAimMaxMissedFrames, numAimMaxMissedFrames,
+                lblAimFireGracePeriod, numAimFireGracePeriod,
+                lblAimTrackingBlend, numAimTrackingBlend,
+                lblAimCloseRangeSlowdown, numAimCloseRangeSlowdown,
+                lblAimPredictionLead, numAimPredictionLead,
+                lblAimMaxPrediction, numAimMaxPrediction,
+                lblAimVelocityFeedForward, numAimVelocityFeedForward,
+                lblAimInitialAcquireDistance, numAimInitialAcquireDistance,
+                lblAimTrackedAcquireDistance, numAimTrackedAcquireDistance,
+                lblAimStopInsideBoxArea, numAimStopInsideBoxArea,
+                lblAimStopBoxTopOffset, numAimStopBoxTopOffset,
+                chkAimCalibrationMode
+            };
+
+            foreach (Control control in obsoleteControls)
+            {
+                control.Visible = false;
+            }
         }
 
         private Rectangle GetSourceRegion(int frameWidth, int frameHeight)
@@ -370,9 +465,12 @@ namespace YOLOForAim
             Point windowCenter = new(
                 windowBounds.Left + (windowBounds.Width / 2),
                 windowBounds.Top + (windowBounds.Height / 2));
+            DetectionResult[] controlDetections = detections
+                .Select(detection => AimPointCalculator.GetControlDetection(detection, currentAimSettings, targetWindowWidth))
+                .ToArray();
             overlayStateManager.Update(
                 captureBounds,
-                detections,
+                controlDetections,
                 processedFrameVersion,
                 aimAssistController.SuppressOverlayFrameVersion,
                 capturedTick,

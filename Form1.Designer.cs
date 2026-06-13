@@ -73,6 +73,9 @@
             this.numAimMaxPrediction = new System.Windows.Forms.NumericUpDown();
             this.lblAimVelocityFeedForward = new System.Windows.Forms.Label();
             this.numAimVelocityFeedForward = new System.Windows.Forms.NumericUpDown();
+            this.chkAimCalibrationMode = new System.Windows.Forms.CheckBox();
+            this.lblAimCalibrationStep = new System.Windows.Forms.Label();
+            this.numAimCalibrationStep = new System.Windows.Forms.NumericUpDown();
             this.lblAimInitialAcquireDistance = new System.Windows.Forms.Label();
             this.numAimInitialAcquireDistance = new System.Windows.Forms.NumericUpDown();
             this.lblAimTrackedAcquireDistance = new System.Windows.Forms.Label();
@@ -106,6 +109,7 @@
             ((System.ComponentModel.ISupportInitialize)(this.numAimStopBoxTopOffset)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimMaxPrediction)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimVelocityFeedForward)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimCalibrationStep)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimInitialAcquireDistance)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimTrackedAcquireDistance)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBoxPreview)).BeginInit();
@@ -731,6 +735,50 @@
             0});
             this.toolTipDescriptions.SetToolTip(this.numAimVelocityFeedForward, "建议 10~25。快速目标跟不上时可适当加大。");
             // 
+            // chkAimCalibrationMode
+            // 
+            this.chkAimCalibrationMode.AutoSize = true;
+            this.chkAimCalibrationMode.Location = new System.Drawing.Point(585, 196);
+            this.chkAimCalibrationMode.Name = "chkAimCalibrationMode";
+            this.chkAimCalibrationMode.Size = new System.Drawing.Size(74, 19);
+            this.chkAimCalibrationMode.TabIndex = 51;
+            this.chkAimCalibrationMode.Text = "校准模式";
+            this.toolTipDescriptions.SetToolTip(this.chkAimCalibrationMode, "开启后每次只发送小步移动，并在诊断框记录鼠标指令量与检测框实际回中心距离，用于估算速度倍率。校准时请让目标处在窗口中心外。 ");
+            this.chkAimCalibrationMode.UseVisualStyleBackColor = true;
+            // 
+            // lblAimCalibrationStep
+            // 
+            this.lblAimCalibrationStep.AutoSize = true;
+            this.lblAimCalibrationStep.Location = new System.Drawing.Point(664, 196);
+            this.lblAimCalibrationStep.Name = "lblAimCalibrationStep";
+            this.lblAimCalibrationStep.Size = new System.Drawing.Size(67, 15);
+            this.lblAimCalibrationStep.TabIndex = 52;
+            this.lblAimCalibrationStep.Text = "步长(px)";
+            this.toolTipDescriptions.SetToolTip(this.lblAimCalibrationStep, "校准模式下单次发送的鼠标移动指令上限。值越小越慢但更容易观察比例。 ");
+            // 
+            // numAimCalibrationStep
+            // 
+            this.numAimCalibrationStep.Location = new System.Drawing.Point(737, 194);
+            this.numAimCalibrationStep.Maximum = new decimal(new int[] {
+            50,
+            0,
+            0,
+            0});
+            this.numAimCalibrationStep.Minimum = new decimal(new int[] {
+            1,
+            0,
+            0,
+            0});
+            this.numAimCalibrationStep.Name = "numAimCalibrationStep";
+            this.numAimCalibrationStep.Size = new System.Drawing.Size(51, 23);
+            this.numAimCalibrationStep.TabIndex = 53;
+            this.numAimCalibrationStep.Value = new decimal(new int[] {
+            8,
+            0,
+            0,
+            0});
+            this.toolTipDescriptions.SetToolTip(this.numAimCalibrationStep, "建议 5~12。校准完成后根据诊断里的比例调整速度倍率。 ");
+            // 
             // lblAimInitialAcquireDistance
             // 
             this.lblAimInitialAcquireDistance.AutoSize = true;
@@ -868,7 +916,8 @@
             this.cmbInferenceBackend.Items.AddRange(new object[] {
             "ONNX Runtime / DirectML",
             "TensorRT Engine",
-            "颜色检测(取色横向矩形)"});
+            "颜色检测(取色横向矩形)",
+            "颜色优先 + TensorRT"});
             this.cmbInferenceBackend.Location = new System.Drawing.Point(457, 48);
             this.cmbInferenceBackend.Name = "cmbInferenceBackend";
             this.cmbInferenceBackend.Size = new System.Drawing.Size(191, 23);
@@ -927,6 +976,9 @@
             Controls.Add(this.lblInferenceBackend);
             Controls.Add(this.numAimVelocityFeedForward);
             Controls.Add(this.lblAimVelocityFeedForward);
+            Controls.Add(this.numAimCalibrationStep);
+            Controls.Add(this.lblAimCalibrationStep);
+            Controls.Add(this.chkAimCalibrationMode);
             Controls.Add(this.numAimMaxPrediction);
             Controls.Add(this.lblAimMaxPrediction);
             Controls.Add(this.numAimTrackedAcquireDistance);
@@ -997,6 +1049,7 @@
             ((System.ComponentModel.ISupportInitialize)(this.numAimStopBoxTopOffset)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimMaxPrediction)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimVelocityFeedForward)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimCalibrationStep)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimInitialAcquireDistance)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimTrackedAcquireDistance)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBoxPreview)).EndInit();
@@ -1047,6 +1100,9 @@
         private System.Windows.Forms.NumericUpDown numAimMaxPrediction;
         private System.Windows.Forms.Label lblAimVelocityFeedForward;
         private System.Windows.Forms.NumericUpDown numAimVelocityFeedForward;
+        private System.Windows.Forms.CheckBox chkAimCalibrationMode;
+        private System.Windows.Forms.Label lblAimCalibrationStep;
+        private System.Windows.Forms.NumericUpDown numAimCalibrationStep;
         private System.Windows.Forms.Label lblAimInitialAcquireDistance;
         private System.Windows.Forms.NumericUpDown numAimInitialAcquireDistance;
         private System.Windows.Forms.Label lblAimTrackedAcquireDistance;

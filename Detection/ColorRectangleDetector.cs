@@ -1,6 +1,6 @@
 ﻿namespace YOLOForAim;
 
-internal sealed class ColorRectangleDetector : IDetector
+internal sealed class ColorRectangleDetector : IDetector, IColorDetectionOptionsSink
 {
     private ColorDetectionOptions colorOptions;
 

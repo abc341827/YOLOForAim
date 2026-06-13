@@ -34,6 +34,22 @@ internal static class AimPointCalculator
         return GetBoxCenter(lockSquareBounds);
     }
 
+    public static DetectionResult GetControlDetection(DetectionResult detection, AimRuntimeSettings settings, int targetWindowWidth)
+    {
+        if (!IsColorDetection(detection))
+        {
+            return detection;
+        }
+
+        float horizontalOffset = Math.Max(targetWindowWidth, detection.Box.Width) / ColorPixelAimHorizontalOffsetScreenDivisor;
+        PointF targetCenter = new(
+            detection.Box.X + horizontalOffset,
+            detection.Box.Bottom + settings.PointBelowOffsetPixels);
+        float boxSize = Math.Max(8f, settings.StopLockSquareSizePixels);
+        RectangleF targetBox = CreateCenteredBox(targetCenter, new SizeF(boxSize, boxSize));
+        return detection with { Box = targetBox };
+    }
+
     public static RectangleF GetLockSquareBounds(RectangleF bounds, float squareSizePixels, float topOffsetPixels)
     {
         float squareSize = Math.Clamp(squareSizePixels, 8f, Math.Max(8f, Math.Min(bounds.Width, bounds.Height)));
@@ -44,17 +60,10 @@ internal static class AimPointCalculator
 
     public static PointF GetAimPoint(Rectangle captureBounds, DetectionResult detection, AimRuntimeSettings settings, int targetWindowWidth)
     {
-        if (!IsColorDetection(detection))
-        {
-            RectangleF screenBounds = GetDetectionScreenBounds(captureBounds, detection);
-            return GetBoxCenter(screenBounds);
-        }
-
-        float horizontalOffset = Math.Max(targetWindowWidth, captureBounds.Width) / ColorPixelAimHorizontalOffsetScreenDivisor;
-
-        return new PointF(
-            captureBounds.Left + detection.Box.X + horizontalOffset,
-            captureBounds.Top + detection.Box.Bottom + settings.PointBelowOffsetPixels);
+        _ = settings;
+        _ = targetWindowWidth;
+        RectangleF screenBounds = GetDetectionScreenBounds(captureBounds, detection);
+        return GetBoxCenter(screenBounds);
     }
 
     private static bool IsColorDetection(DetectionResult detection)

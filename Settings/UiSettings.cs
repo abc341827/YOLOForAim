@@ -13,33 +13,22 @@ internal sealed record UiSettings(
     int AimHeightPercent,
     int AimDeadzone,
     int AimSmoothingPercent,
-    int AimSpeedMultiplierPercent,
     int AimMaxStep,
-    int AimSwitchDistance,
-    int AimMaxMissedFrames,
-    int AimFireGracePeriodMs = UiSettings.DefaultAimAssistFireGracePeriodMs,
-    int AimTrackingBlendPercent = UiSettings.DefaultAimTargetTrackingBlendPercent,
-    int AimCloseRangeSlowdownPixels = UiSettings.DefaultAimCloseRangeSlowdownPixels,
     int AimMoveCooldownMs = UiSettings.DefaultAimMoveCooldownMs,
-    int AimPredictionLeadMs = UiSettings.DefaultAimPredictionLeadMs,
-    int AimMaxPredictionPixels = UiSettings.DefaultAimMaxPredictionPixels,
-    int AimVelocityFeedForwardMaxPixels = UiSettings.DefaultAimVelocityFeedForwardMaxPixels,
-    int AimInitialAcquireDistancePixels = UiSettings.DefaultAimInitialAcquireDistancePixels,
-    int AimTrackedAcquireDistancePixels = UiSettings.DefaultAimTrackedAcquireDistancePixels,
-    int AimStopLockSquareSizePixels = UiSettings.DefaultAimStopLockSquareSizePixels,
-    int AimStopLockTopOffsetPixels = UiSettings.DefaultAimStopLockTopOffsetPixels,
+    int AimCalibrationStepPixels = UiSettings.DefaultAimCalibrationStepPixels,
     string InferenceBackend = nameof(DetectorBackend.OnnxRuntimeDirectMl),
     ColorDetectionOptions? PrimaryColorDetection = null)
 {
-    public const int DefaultAimAssistFireGracePeriodMs = 120;
+    public const int DefaultAimAssistFireGracePeriodMs = 0;
     public const int DefaultAimTargetTrackingBlendPercent = 35;
     public const int DefaultAimCloseRangeSlowdownPixels = 64;
-    public const int DefaultAimMoveCooldownMs = 10;
-    public const int DefaultAimPredictionLeadMs = 18;
-    public const int DefaultAimMaxPredictionPixels = 58;
-    public const int DefaultAimVelocityFeedForwardMaxPixels = 10;
-    public const int DefaultAimInitialAcquireDistancePixels = 240;
-    public const int DefaultAimTrackedAcquireDistancePixels = 90;
+    public const int DefaultAimMoveCooldownMs = 0;
+    public const int DefaultAimPredictionLeadMs = 0;
+    public const int DefaultAimMaxPredictionPixels = 0;
+    public const int DefaultAimVelocityFeedForwardMaxPixels = 0;
+    public const int DefaultAimInitialAcquireDistancePixels = 1000;
+    public const int DefaultAimTrackedAcquireDistancePixels = 1000;
     public const int DefaultAimStopLockSquareSizePixels = 36;
     public const int DefaultAimStopLockTopOffsetPixels = 18;
+    public const int DefaultAimCalibrationStepPixels = 8;
 }
