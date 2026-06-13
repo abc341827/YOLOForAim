@@ -40,6 +40,11 @@ internal static class AimPointCalculator
         PointF targetCenter;
         if (IsColorDetection(detection))
         {
+            if (!IsRawColorPixelDetection(detection))
+            {
+                return detection;
+            }
+
             float horizontalOffset = Math.Max(targetWindowWidth, detection.Box.Width) / ColorPixelAimHorizontalOffsetScreenDivisor;
             targetCenter = new(
                 detection.Box.X + horizontalOffset,
@@ -73,5 +78,10 @@ internal static class AimPointCalculator
     private static bool IsColorDetection(DetectionResult detection)
     {
         return detection.Label.StartsWith("Color", StringComparison.Ordinal);
+    }
+
+    private static bool IsRawColorPixelDetection(DetectionResult detection)
+    {
+        return detection.Box.Width <= 1.01f && detection.Box.Height <= 1.01f;
     }
 }

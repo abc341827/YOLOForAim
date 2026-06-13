@@ -234,10 +234,13 @@ public partial class Form1
                         frameToProcess.ReferenceWidth) ?? new DetectionRunResult(Array.Empty<DetectionResult>());
                     detectStopwatch.Stop();
                     int targetWindowWidth = Math.Max(frameToProcess.ReferenceWidth, frameToProcess.Width);
+                    DetectionResult[] controlDetections = result.Detections
+                        .Select(detection => AimPointCalculator.GetControlDetection(detection, currentAimSettings, targetWindowWidth))
+                        .ToArray();
                     Point aimReferencePoint = new(
                         frameToProcess.WindowBounds.Left + (frameToProcess.WindowBounds.Width / 2),
                         frameToProcess.WindowBounds.Top + (frameToProcess.WindowBounds.Height / 2));
-                    IReadOnlyList<DetectionResult> primaryDetections = primaryTargetTracker.SelectPrimaryTarget(result.Detections, frameToProcess.ScreenBounds, aimReferencePoint, currentAimSettings);
+                    IReadOnlyList<DetectionResult> primaryDetections = primaryTargetTracker.SelectPrimaryTarget(controlDetections, frameToProcess.ScreenBounds, aimReferencePoint, currentAimSettings);
                     TryMoveMouseToNearestDetection(primaryDetections, frameToProcess.ScreenBounds, frameToProcess.WindowBounds, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
                     UpdateOverlayState(frameToProcess.ScreenBounds, frameToProcess.WindowBounds, primaryDetections, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
                     processedFrameCounter++;
