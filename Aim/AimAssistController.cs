@@ -31,10 +31,13 @@ internal sealed class AimAssistController
     private bool hasControlTarget;
     private long lastTargetUpdateTick;
     private long lastTargetCapturedTick;
+    private int lastTargetUpdateFrameVersion = -1;
     private Rectangle lastControlCaptureBounds;
     private DetectionResult? lastControlStableDetection;
     private Point lastControlMove = Point.Empty;
     private long lastControlMoveTick;
+    private int lastControlMoveTargetFrameVersion = -1;
+    private PointF? lastPhysicalAimReferencePoint;
 
     public AimAssistController()
     {
@@ -157,8 +160,12 @@ internal sealed class AimAssistController
             hasControlTarget = true;
             lastTargetUpdateTick = now;
             lastTargetCapturedTick = capturedTick;
+            lastTargetUpdateFrameVersion = processedFrameVersion;
             lastControlCaptureBounds = captureBounds;
             lastControlStableDetection = stableDetection;
+            state.PendingAimCompensation = PointF.Empty;
+            state.LastPendingCompensationFrameVersion = processedFrameVersion;
+            lastPhysicalAimReferencePoint = aimReferencePoint;
         }
     }
 
@@ -187,14 +194,16 @@ internal sealed class AimAssistController
             }
 
             PointF aimReferencePoint = GetAimReferencePoint();
+            ReconcilePendingCompensationWithPhysicalCursor(aimReferencePoint);
             if (settings.PointBelowOffsetPixels <= 0f && lastControlStableDetection is not null &&
                 AimPointCalculator.IsAimReferenceInsideStableBox(lastControlCaptureBounds, lastControlStableDetection, aimReferencePoint, settings.StopLockSquareSizePixels, settings.StopLockTopOffsetPixels))
             {
                 return;
             }
 
-            PointF observedTargetPoint = state.SmoothedTargetScreenPoint ?? state.LockedTargetScreenPoint ?? targetPrediction.PredictedPoint;
-            PointF targetPoint = LimitCloseRangePrediction(observedTargetPoint, targetPrediction.PredictedPoint, aimReferencePoint, settings);
+            PointF observedTargetPoint = ApplyPendingCompensation(state.SmoothedTargetScreenPoint ?? state.LockedTargetScreenPoint ?? targetPrediction.PredictedPoint);
+            PointF predictedTargetPoint = ApplyPendingCompensation(targetPrediction.PredictedPoint);
+            PointF targetPoint = LimitCloseRangePrediction(observedTargetPoint, predictedTargetPoint, aimReferencePoint, settings);
             float distanceToAimPoint = AimMovementCalculator.GetDistanceToTarget(targetPoint, aimReferencePoint);
             float distanceToObservedAimPoint = AimMovementCalculator.GetDistanceToTarget(observedTargetPoint, aimReferencePoint);
             if (distanceToObservedAimPoint <= settings.DeadzonePixels &&
@@ -219,7 +228,7 @@ internal sealed class AimAssistController
             finalMove = AimMovementCalculator.CalculateMove(targetPoint, aimReferencePoint, controlSettings, distanceToAimPoint, targetPrediction.Velocity, controlDeltaSeconds);
             finalMove = ClampMoveToObservedTarget(finalMove, observedTargetPoint, aimReferencePoint, settings);
             finalMove = LimitMoveAcceleration(finalMove, lastControlMove, targetPoint, aimReferencePoint, settings);
-            finalMove = ClampMoveNoOvershoot(finalMove, targetPoint, aimReferencePoint, settings);
+            finalMove = ClampMoveNoOvershoot(finalMove, observedTargetPoint, aimReferencePoint, settings);
             if (finalMove.IsEmpty)
             {
                 lastControlMove = Point.Empty;
@@ -228,6 +237,11 @@ internal sealed class AimAssistController
 
             lastControlMove = finalMove;
             lastControlMoveTick = now;
+            lastControlMoveTargetFrameVersion = lastTargetUpdateFrameVersion;
+            state.PendingAimCompensation = new PointF(
+                state.PendingAimCompensation.X + finalMove.X,
+                state.PendingAimCompensation.Y + finalMove.Y);
+            lastPhysicalAimReferencePoint = aimReferencePoint;
             assistGate.MarkMoveSent(now);
         }
 
@@ -479,6 +493,57 @@ internal sealed class AimAssistController
             (int)Math.Round(unitY * forwardMove));
     }
 
+    private bool HasFreshFeedbackFrame(AimRuntimeSettings settings)
+    {
+        if (lastControlMoveTargetFrameVersion < 0)
+        {
+            return true;
+        }
+
+        int requiredFrameGap = Math.Max(1, settings.FeedbackFrameDelay + 1);
+        return lastTargetUpdateFrameVersion - lastControlMoveTargetFrameVersion >= requiredFrameGap;
+    }
+
+    private PointF ApplyPendingCompensation(PointF point)
+    {
+        return new PointF(
+            point.X - state.PendingAimCompensation.X,
+            point.Y - state.PendingAimCompensation.Y);
+    }
+
+    private void ReconcilePendingCompensationWithPhysicalCursor(PointF currentAimReferencePoint)
+    {
+        if (lastPhysicalAimReferencePoint is null || state.PendingAimCompensation.IsEmpty)
+        {
+            lastPhysicalAimReferencePoint = currentAimReferencePoint;
+            return;
+        }
+
+        PointF physicalDelta = new(
+            currentAimReferencePoint.X - lastPhysicalAimReferencePoint.Value.X,
+            currentAimReferencePoint.Y - lastPhysicalAimReferencePoint.Value.Y);
+        state.PendingAimCompensation = new PointF(
+            ReduceCompensationAxis(state.PendingAimCompensation.X, physicalDelta.X),
+            ReduceCompensationAxis(state.PendingAimCompensation.Y, physicalDelta.Y));
+        lastPhysicalAimReferencePoint = currentAimReferencePoint;
+    }
+
+    private static float ReduceCompensationAxis(float pendingCompensation, float physicalDelta)
+    {
+        if (MathF.Abs(pendingCompensation) <= 0.001f || MathF.Abs(physicalDelta) <= 0.001f)
+        {
+            return pendingCompensation;
+        }
+
+        if (Math.Sign(pendingCompensation) != Math.Sign(physicalDelta))
+        {
+            return pendingCompensation;
+        }
+
+        float remaining = MathF.Abs(pendingCompensation) - MathF.Abs(physicalDelta);
+        return remaining <= 0.001f ? 0f : Math.Sign(pendingCompensation) * remaining;
+    }
+
     private void ResetTrackingCore()
     {
         state.ResetTracking();
@@ -491,10 +556,15 @@ internal sealed class AimAssistController
         hasControlTarget = false;
         lastTargetUpdateTick = 0;
         lastTargetCapturedTick = 0;
+        lastTargetUpdateFrameVersion = -1;
         lastControlCaptureBounds = Rectangle.Empty;
         lastControlStableDetection = null;
         lastControlMove = Point.Empty;
         lastControlMoveTick = 0;
+        lastControlMoveTargetFrameVersion = -1;
+        lastPhysicalAimReferencePoint = null;
+        state.PendingAimCompensation = PointF.Empty;
+        state.LastPendingCompensationFrameVersion = -1;
     }
 
     private static PointF GetAimReferencePoint()
