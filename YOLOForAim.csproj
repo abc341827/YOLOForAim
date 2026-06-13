@@ -24,6 +24,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="runtimes\**\*.dll" Condition="Exists('runtimes')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="tensorrt-runtime.txt" Condition="Exists('tensorrt-runtime.txt')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="cudart64_12.dll">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
@@ -49,6 +55,8 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <TargetPath>nvinfer_plugin_10.lib</TargetPath>
     </None>
+    <None Include="native\TensorRtNative\TensorRtNative.local.props" />
+    <None Include="native\TensorRtNative\TensorRtNative.local.props.example" />
     <None Include="TensorRtNative.dll" Condition="Exists('TensorRtNative.dll')">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <!-- Copy this file to TensorRtNative.local.props and adjust these paths on each machine. -->
+    <TensorRtMajor>11</TensorRtMajor>
+    <TensorRtRoot>C:\SDK\TensorRT-11.0.0.114</TensorRtRoot>
+    <CudaRoot>$(CUDA_PATH)</CudaRoot>
+  </PropertyGroup>
+</Project>

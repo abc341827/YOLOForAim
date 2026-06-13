@@ -22,14 +22,14 @@
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup Condition="'$(PlatformToolset)'==''">
@@ -37,12 +37,26 @@
     <PlatformToolset Condition="'$(PlatformToolset)'=='' and Exists('$(VCTargetsPath)\Platforms\$(Platform)\PlatformToolsets\v142\Toolset.props')">v142</PlatformToolset>
     <PlatformToolset Condition="'$(PlatformToolset)'=='' and Exists('$(VCTargetsPath)\Platforms\$(Platform)\PlatformToolsets\v141\Toolset.props')">v141</PlatformToolset>
   </PropertyGroup>
+  <Import Project="$(ProjectDir)TensorRtNative.local.props" Condition="Exists('$(ProjectDir)TensorRtNative.local.props')" />
   <PropertyGroup>
-    <TensorRtInferLib Condition="Exists('$(ProjectDir)nvinfer_10.lib')">nvinfer_10.lib</TensorRtInferLib>
-    <TensorRtInferLib Condition="'$(TensorRtInferLib)'==''">nvinfer.lib</TensorRtInferLib>
-    <TensorRtPluginLib Condition="Exists('$(ProjectDir)nvinfer_plugin_10.lib')">nvinfer_plugin_10.lib</TensorRtPluginLib>
-    <TensorRtPluginLib Condition="'$(TensorRtPluginLib)'=='' and Exists('$(ProjectDir)nvinfer_plugin.lib')">nvinfer_plugin.lib</TensorRtPluginLib>
-    <TensorRtPluginLib Condition="'$(TensorRtPluginLib)'=='' and Exists('$(ProjectDir)nvinfer_plugin_10.lib')">nvinfer_plugin_10.lib</TensorRtPluginLib>
+    <TensorRtMajor Condition="'$(TensorRtMajor)'==''">10</TensorRtMajor>
+    <TensorRtIncludeDir Condition="'$(TensorRtRoot)'!='' and Exists('$(TensorRtRoot)\include')">$(TensorRtRoot)\include</TensorRtIncludeDir>
+    <TensorRtLibraryDir Condition="'$(TensorRtRoot)'!='' and Exists('$(TensorRtRoot)\lib')">$(TensorRtRoot)\lib</TensorRtLibraryDir>
+    <TensorRtIncludeDir Condition="'$(TensorRtIncludeDir)'==''">$(ProjectDir)</TensorRtIncludeDir>
+    <TensorRtLibraryDir Condition="'$(TensorRtLibraryDir)'==''">$(ProjectDir)</TensorRtLibraryDir>
+    <CudaRoot Condition="'$(CudaRoot)'==''">$(CUDA_PATH)</CudaRoot>
+    <CudaIncludeDir Condition="'$(CudaRoot)'!='' and Exists('$(CudaRoot)\include')">$(CudaRoot)\include</CudaIncludeDir>
+    <CudaLibraryDir Condition="'$(CudaRoot)'!='' and Exists('$(CudaRoot)\lib\x64')">$(CudaRoot)\lib\x64</CudaLibraryDir>
+    <CudaIncludeDir Condition="'$(CudaIncludeDir)'==''">$(ProjectDir)</CudaIncludeDir>
+    <CudaLibraryDir Condition="'$(CudaLibraryDir)'==''">$(ProjectDir)</CudaLibraryDir>
+    <TensorRtInferLib Condition="Exists('$(TensorRtLibraryDir)\nvinfer_$(TensorRtMajor).lib')">nvinfer_$(TensorRtMajor).lib</TensorRtInferLib>
+    <TensorRtInferLib Condition="'$(TensorRtInferLib)'=='' and Exists('$(TensorRtLibraryDir)\nvinfer.lib')">nvinfer.lib</TensorRtInferLib>
+    <TensorRtInferLib Condition="'$(TensorRtInferLib)'==''">nvinfer_$(TensorRtMajor).lib</TensorRtInferLib>
+    <TensorRtPluginLib Condition="Exists('$(TensorRtLibraryDir)\nvinfer_plugin_$(TensorRtMajor).lib')">nvinfer_plugin_$(TensorRtMajor).lib</TensorRtPluginLib>
+    <TensorRtPluginLib Condition="'$(TensorRtPluginLib)'=='' and Exists('$(TensorRtLibraryDir)\nvinfer_plugin.lib')">nvinfer_plugin.lib</TensorRtPluginLib>
+    <TensorRtPluginLib Condition="'$(TensorRtPluginLib)'==''">nvinfer_plugin_$(TensorRtMajor).lib</TensorRtPluginLib>
+    <CudaRuntimeLib Condition="Exists('$(CudaLibraryDir)\cudart.lib')">$(CudaLibraryDir)\cudart.lib</CudaRuntimeLib>
+    <CudaRuntimeLib Condition="'$(CudaRuntimeLib)'==''">cudart.lib</CudaRuntimeLib>
   </PropertyGroup>
   <ImportGroup Label="ExtensionSettings" />
   <ImportGroup Label="Shared" />
@@ -64,13 +78,14 @@
       <PreprocessorDefinitions>WIN32;_DEBUG;TENSORRTNATIVE_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(TensorRtIncludeDir);$(CudaIncludeDir);$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(ProjectDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(TensorRtInferLib);$(TensorRtPluginLib);cudart.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(TensorRtLibraryDir);$(CudaLibraryDir);$(ProjectDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(TensorRtInferLib);$(TensorRtPluginLib);$(CudaRuntimeLib);%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -82,15 +97,16 @@
       <PreprocessorDefinitions>WIN32;NDEBUG;TENSORRTNATIVE_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(TensorRtIncludeDir);$(CudaIncludeDir);$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(ProjectDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(TensorRtInferLib);$(TensorRtPluginLib);cudart.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(TensorRtLibraryDir);$(CudaLibraryDir);$(ProjectDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(TensorRtInferLib);$(TensorRtPluginLib);$(CudaRuntimeLib);%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
