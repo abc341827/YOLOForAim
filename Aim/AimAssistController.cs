@@ -193,12 +193,15 @@ internal sealed class AimAssistController
                 return;
             }
 
-            PointF targetPoint = targetPrediction.PredictedPoint;
-            PointF observedTargetPoint = state.SmoothedTargetScreenPoint ?? state.LockedTargetScreenPoint ?? targetPoint;
+            PointF observedTargetPoint = state.SmoothedTargetScreenPoint ?? state.LockedTargetScreenPoint ?? targetPrediction.PredictedPoint;
+            PointF targetPoint = LimitCloseRangePrediction(observedTargetPoint, targetPrediction.PredictedPoint, aimReferencePoint, settings);
             float distanceToAimPoint = AimMovementCalculator.GetDistanceToTarget(targetPoint, aimReferencePoint);
             float distanceToObservedAimPoint = AimMovementCalculator.GetDistanceToTarget(observedTargetPoint, aimReferencePoint);
-            if (distanceToObservedAimPoint <= settings.DeadzonePixels && !ShouldVelocityFollow(targetPrediction.Velocity, settings))
+            if (distanceToObservedAimPoint <= settings.DeadzonePixels &&
+                (distanceToAimPoint <= settings.DeadzonePixels * 1.5f || !ShouldVelocityFollow(targetPrediction.Velocity, settings)))
             {
+                lastControlMove = Point.Empty;
+                lastControlMoveTick = 0;
                 return;
             }
 
@@ -215,9 +218,10 @@ internal sealed class AimAssistController
 
             finalMove = AimMovementCalculator.CalculateMove(targetPoint, aimReferencePoint, controlSettings, distanceToAimPoint, targetPrediction.Velocity, controlDeltaSeconds);
             finalMove = ClampMoveToObservedTarget(finalMove, observedTargetPoint, aimReferencePoint, settings);
-            finalMove = LimitMoveAcceleration(finalMove, lastControlMove, settings);
+            finalMove = LimitMoveAcceleration(finalMove, lastControlMove, targetPoint, aimReferencePoint, settings);
             if (finalMove.IsEmpty)
             {
+                lastControlMove = Point.Empty;
                 return;
             }
 
@@ -407,9 +411,18 @@ internal sealed class AimAssistController
             (int)Math.Round((forwardMove * unitY) + lateralMoveY));
     }
 
-    private static Point LimitMoveAcceleration(Point move, Point previousMove, AimRuntimeSettings settings)
+    private static Point LimitMoveAcceleration(Point move, Point previousMove, PointF targetPoint, PointF aimReferencePoint, AimRuntimeSettings settings)
     {
         if (previousMove.IsEmpty || move.IsEmpty)
+        {
+            return move;
+        }
+
+        float errorX = targetPoint.X - aimReferencePoint.X;
+        float errorY = targetPoint.Y - aimReferencePoint.Y;
+        float desiredDotPrevious = (move.X * previousMove.X) + (move.Y * previousMove.Y);
+        float previousDotError = (previousMove.X * errorX) + (previousMove.Y * errorY);
+        if (desiredDotPrevious <= 0f || previousDotError <= 0f)
         {
             return move;
         }

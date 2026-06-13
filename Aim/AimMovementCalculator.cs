@@ -54,7 +54,7 @@ internal static class AimMovementCalculator
     private static PointF GetVelocityFeedForwardMove(PointF targetVelocity, AimRuntimeSettings settings, float distanceToTarget, float rawMoveX, float rawMoveY, float controlDeltaSeconds)
     {
         float velocityPixelsPerSecond = MathF.Sqrt((targetVelocity.X * targetVelocity.X) + (targetVelocity.Y * targetVelocity.Y));
-        if (velocityPixelsPerSecond <= 0.001f)
+        if (velocityPixelsPerSecond <= 0.001f || distanceToTarget <= settings.DeadzonePixels)
         {
             return PointF.Empty;
         }
@@ -81,7 +81,7 @@ internal static class AimMovementCalculator
         }
 
         float closeRangePixels = Math.Max(settings.CloseRangeSlowdownPixels, settings.DeadzonePixels + 1f);
-        float followScale = Math.Clamp((distanceToTarget + settings.DeadzonePixels) / closeRangePixels, 0.75f, 1f);
+        float followScale = Math.Clamp((distanceToTarget - settings.DeadzonePixels) / (closeRangePixels - settings.DeadzonePixels), 0f, 1f);
         if (lagAlongVelocityPixels < -settings.DeadzonePixels)
         {
             followScale *= 0.35f;
