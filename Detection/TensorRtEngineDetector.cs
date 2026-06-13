@@ -5,6 +5,7 @@ namespace YOLOForAim;
 internal sealed class TensorRtEngineDetector : IDetector
 {
     private const float NmsThreshold = 0.45f;
+    private const float MaxDetectionAreaRatio = 0.75f;
 
     private IntPtr detectorHandle;
     private readonly TensorRtTensorInfo inputTensor;
@@ -270,7 +271,7 @@ internal sealed class TensorRtEngineDetector : IDetector
             float x2 = boxesOutput.Data[baseOffset + 2] * xScale;
             float y2 = boxesOutput.Data[baseOffset + 3] * yScale;
             RectangleF box = MapBoxToOriginalImage(x1, y1, x2, y2, originalSize, scale, padX, padY, preferXyxy: true);
-            if (box.Width <= 1 || box.Height <= 1)
+            if (!IsSaneBox(box, originalSize))
             {
                 continue;
             }
@@ -344,7 +345,7 @@ internal sealed class TensorRtEngineDetector : IDetector
                 padY,
                 preferXyxy: output.Data[rowOffset + 2] > output.Data[rowOffset] && output.Data[rowOffset + 3] > output.Data[rowOffset + 1]);
 
-            if (box.Width <= 1 || box.Height <= 1)
+            if (!IsSaneBox(box, originalSize))
             {
                 continue;
             }
@@ -452,13 +453,14 @@ internal sealed class TensorRtEngineDetector : IDetector
 
             float boxWidth = right - left;
             float boxHeight = bottom - top;
-            if (boxWidth <= 1 || boxHeight <= 1)
+            RectangleF box = new(left, top, boxWidth, boxHeight);
+            if (!IsSaneBox(box, originalSize))
             {
                 continue;
             }
 
             parsedDetections.Add(new DetectionResult(
-                new RectangleF(left, top, boxWidth, boxHeight),
+                box,
                 maxScore,
                 classId,
                 $"Class {classId}"));
@@ -505,6 +507,23 @@ internal sealed class TensorRtEngineDetector : IDetector
         bottom = Math.Clamp(bottom, 0, Math.Max(0, originalSize.Height - 1));
 
         return new RectangleF(left, top, Math.Max(0, right - left), Math.Max(0, bottom - top));
+    }
+
+    private static bool IsSaneBox(RectangleF box, Size imageSize)
+    {
+        if (!float.IsFinite(box.Left) || !float.IsFinite(box.Top) || !float.IsFinite(box.Width) || !float.IsFinite(box.Height))
+        {
+            return false;
+        }
+
+        if (box.Width <= 1f || box.Height <= 1f || imageSize.Width <= 0 || imageSize.Height <= 0)
+        {
+            return false;
+        }
+
+        float area = box.Width * box.Height;
+        float imageArea = imageSize.Width * imageSize.Height;
+        return area <= imageArea * MaxDetectionAreaRatio;
     }
 
     private static IReadOnlyList<DetectionResult> OffsetDetections(IReadOnlyList<DetectionResult> detections, Point offset)

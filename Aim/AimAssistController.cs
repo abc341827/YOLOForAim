@@ -15,6 +15,7 @@ internal sealed class AimAssistController
     private const float LockedTargetMatchMinIou = 0.08f;
     private const float AdaptiveTrackingDistancePixels = 80f;
     private const float MaxAdaptiveTrackingBlend = 0.85f;
+    private const float MinOutlierRejectDistancePixels = 120f;
 
     private readonly AimRuntimeState state = new();
     private readonly AimTargetSelector targetSelector = new();
@@ -83,6 +84,17 @@ internal sealed class AimAssistController
 
         DetectionResult currentDetection = nearestDetection.Detection;
         bool resetTargetTracking = state.StabilizedLockedDetection is null || !IsLikelySameLockedTarget(currentDetection, captureBounds, settings, targetWindowWidth);
+        PointF rawObservedTargetPoint = GetAimPoint(captureBounds, currentDetection, settings, targetWindowWidth);
+        if (ShouldRejectSuddenTargetJump(rawObservedTargetPoint, resetTargetTracking, settings))
+        {
+            if (missTracker.RegisterMiss(settings))
+            {
+                ResetTracking();
+            }
+
+            return;
+        }
+
         DetectionResult stableDetection = targetStabilizer.GetStabilizedDetection(currentDetection, captureBounds, resetTargetTracking);
         PointF observedTargetPoint = GetAimPoint(captureBounds, stableDetection, settings, targetWindowWidth);
         TargetPrediction targetPrediction = targetPredictor.Predict(observedTargetPoint, resetTargetTracking, now, capturedTick);
@@ -114,7 +126,8 @@ internal sealed class AimAssistController
             return;
         }
 
-        Point finalMove = AimMovementCalculator.CalculateMove(observedTargetPoint, aimReferencePoint, settings, distanceToObservedAimPoint, targetPrediction.Velocity);
+        Point finalMove = AimMovementCalculator.CalculateMove(targetPoint, aimReferencePoint, settings, distanceToAimPoint, targetPrediction.Velocity);
+        finalMove = ClampMoveToObservedTarget(finalMove, observedTargetPoint, aimReferencePoint, settings);
         if (finalMove.IsEmpty)
         {
             return;
@@ -204,6 +217,17 @@ internal sealed class AimAssistController
         return !state.HasAppliedInitialLockPull
             ? Math.Max(1f, settings.InitialAcquireDistancePixels)
             : Math.Max(1f, settings.TrackedAcquireDistancePixels);
+    }
+
+    private bool ShouldRejectSuddenTargetJump(PointF observedTargetPoint, bool resetTargetTracking, AimRuntimeSettings settings)
+    {
+        if (!resetTargetTracking || state.SmoothedTargetScreenPoint is null)
+        {
+            return false;
+        }
+
+        float maxAllowedJump = Math.Max(MinOutlierRejectDistancePixels, settings.LockSwitchDistancePixels);
+        return GetDistanceSquared(state.SmoothedTargetScreenPoint.Value, observedTargetPoint) > maxAllowedJump * maxAllowedJump;
     }
 
     private static float GetAdaptiveTargetTrackingBlend(PointF smoothedPoint, PointF targetPoint, AimRuntimeSettings settings)
