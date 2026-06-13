@@ -8,6 +8,19 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <PlatformTarget>x64</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TensorRtRuntimeSelectorDefault>auto</TensorRtRuntimeSelectorDefault>
+    <TensorRtNativeProject>native\TensorRtNative\TensorRtNative.vcxproj</TensorRtNativeProject>
+  </PropertyGroup>
+  <Import Project="native\TensorRtNative\TensorRtNative.local.props" Condition="Exists('native\TensorRtNative\TensorRtNative.local.props')" />
+  <PropertyGroup>
+    <TensorRtMajor Condition="'$(TensorRtMajor)'=='' and Exists('C:\SDK\TensorRT-11.0.0.114')">11</TensorRtMajor>
+    <TensorRtRoot Condition="'$(TensorRtRoot)'=='' and Exists('C:\SDK\TensorRT-11.0.0.114')">C:\SDK\TensorRT-11.0.0.114</TensorRtRoot>
+    <CudaRoot Condition="'$(CudaRoot)'==''">$(CUDA_PATH)</CudaRoot>
+    <TensorRtConfiguredRuntimeDir Condition="'$(TensorRtMajor)'=='11' and $([System.String]::Copy('$(CudaRoot)').Contains('\v13.'))">runtimes\tensorrt11-cuda13</TensorRtConfiguredRuntimeDir>
+    <TensorRtConfiguredRuntimeDir Condition="'$(TensorRtConfiguredRuntimeDir)'=='' and '$(TensorRtMajor)'=='11'">runtimes\tensorrt11-cuda12</TensorRtConfiguredRuntimeDir>
+    <TensorRtConfiguredRuntimeDir Condition="'$(TensorRtConfiguredRuntimeDir)'=='' and '$(TensorRtMajor)'=='10'">runtimes\tensorrt10-cuda12</TensorRtConfiguredRuntimeDir>
+    <TensorRtNativeOutputDll>native\TensorRtNative\bin\$(Configuration)\native\TensorRtNative.dll</TensorRtNativeOutputDll>
+    <TensorRtCanBuildNative Condition="'$(MSBuildRuntimeType)'!='Core' and '$(Configuration)'=='Release' and Exists('$(TensorRtNativeProject)') and Exists('$(TensorRtRoot)\lib\nvinfer_$(TensorRtMajor).lib') and Exists('$(TensorRtRoot)\lib\nvinfer_plugin_$(TensorRtMajor).lib') and Exists('$(CudaRoot)\lib\x64\cudart.lib')">true</TensorRtCanBuildNative>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="native\**" />
@@ -61,4 +74,27 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <Target Name="BuildConfiguredTensorRtNative" BeforeTargets="CopyFilesToOutputDirectory" Condition="'$(TensorRtCanBuildNative)'=='true'">
+    <MSBuild Projects="$(TensorRtNativeProject)" Targets="Build" Properties="Configuration=$(Configuration);Platform=x64;TensorRtMajor=$(TensorRtMajor);TensorRtRoot=$(TensorRtRoot);CudaRoot=$(CudaRoot)" />
+  </Target>
+
+  <Target Name="CopyConfiguredTensorRtRuntime" AfterTargets="CopyFilesToOutputDirectory" Condition="'$(TensorRtCanBuildNative)'=='true' and Exists('$(TensorRtNativeOutputDll)') and '$(TensorRtConfiguredRuntimeDir)'!=''">
+    <ItemGroup>
+      <_ConfiguredTensorRtRuntimeFiles Include="$(TensorRtNativeOutputDll)" />
+      <_ConfiguredTensorRtRuntimeFiles Include="$(TensorRtRoot)\bin\nvinfer_$(TensorRtMajor).dll" Condition="Exists('$(TensorRtRoot)\bin\nvinfer_$(TensorRtMajor).dll')" />
+      <_ConfiguredTensorRtRuntimeFiles Include="$(TensorRtRoot)\bin\nvinfer_plugin_$(TensorRtMajor).dll" Condition="Exists('$(TensorRtRoot)\bin\nvinfer_plugin_$(TensorRtMajor).dll')" />
+      <_ConfiguredTensorRtRuntimeFiles Include="$(CudaRoot)\bin\cudart64_13.dll" Condition="Exists('$(CudaRoot)\bin\cudart64_13.dll')" />
+      <_ConfiguredTensorRtRuntimeFiles Include="$(CudaRoot)\bin\x64\cudart64_13.dll" Condition="Exists('$(CudaRoot)\bin\x64\cudart64_13.dll')" />
+      <_ConfiguredTensorRtRuntimeFiles Include="$(CudaRoot)\bin\cudart64_12.dll" Condition="Exists('$(CudaRoot)\bin\cudart64_12.dll')" />
+      <_ConfiguredTensorRtRuntimeFiles Include="$(CudaRoot)\bin\x64\cudart64_12.dll" Condition="Exists('$(CudaRoot)\bin\x64\cudart64_12.dll')" />
+    </ItemGroup>
+    <MakeDir Directories="$(OutDir)$(TensorRtConfiguredRuntimeDir)" />
+    <Copy SourceFiles="@(_ConfiguredTensorRtRuntimeFiles)" DestinationFolder="$(OutDir)$(TensorRtConfiguredRuntimeDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="WriteTensorRtRuntimeSelector" AfterTargets="CopyFilesToOutputDirectory">
+    <MakeDir Directories="$(OutDir)" />
+    <WriteLinesToFile File="$(OutDir)tensorrt-runtime.txt" Lines="$(TensorRtRuntimeSelectorDefault)" Overwrite="true" Condition="!Exists('$(OutDir)tensorrt-runtime.txt')" />
+  </Target>
 </Project>
