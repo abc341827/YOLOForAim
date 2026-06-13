@@ -337,7 +337,7 @@ internal sealed class AimAssistController
         foreach (DetectionResult detection in detections)
         {
             DetectionResult controlDetection = AimPointCalculator.GetControlDetection(detection, settings, targetWindowWidth);
-            if (controlDetection.ClassId != lockedDetection.ClassId)
+            if (controlDetection.ClassId != lockedDetection.ClassId || controlDetection.Label != lockedDetection.Label)
             {
                 continue;
             }

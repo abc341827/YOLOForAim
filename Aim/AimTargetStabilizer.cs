@@ -67,7 +67,9 @@ internal sealed class AimTargetStabilizer
 
     public bool IsLikelySameLockedTarget(DetectionResult detection, Rectangle captureBounds, AimRuntimeSettings settings, Func<DetectionResult, PointF> getAimPoint)
     {
-        if (state.StabilizedLockedDetection is null || detection.ClassId != state.StabilizedLockedDetection.ClassId)
+        if (state.StabilizedLockedDetection is null ||
+            detection.ClassId != state.StabilizedLockedDetection.ClassId ||
+            detection.Label != state.StabilizedLockedDetection.Label)
         {
             return false;
         }
@@ -136,7 +138,7 @@ internal sealed class AimTargetStabilizer
 
     private static bool ShouldKeepStableTarget(DetectionResult previousDetection, DetectionResult currentDetection)
     {
-        if (previousDetection.ClassId != currentDetection.ClassId)
+        if (previousDetection.ClassId != currentDetection.ClassId || previousDetection.Label != currentDetection.Label)
         {
             return false;
         }

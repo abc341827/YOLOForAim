@@ -36,16 +36,20 @@ internal static class AimPointCalculator
 
     public static DetectionResult GetControlDetection(DetectionResult detection, AimRuntimeSettings settings, int targetWindowWidth)
     {
-        if (!IsColorDetection(detection))
+        float boxSize = Math.Max(8f, settings.StopLockSquareSizePixels);
+        PointF targetCenter;
+        if (IsColorDetection(detection))
         {
-            return detection;
+            float horizontalOffset = Math.Max(targetWindowWidth, detection.Box.Width) / ColorPixelAimHorizontalOffsetScreenDivisor;
+            targetCenter = new(
+                detection.Box.X + horizontalOffset,
+                detection.Box.Y + settings.PointBelowOffsetPixels);
+        }
+        else
+        {
+            targetCenter = GetBoxCenter(detection.Box);
         }
 
-        float horizontalOffset = Math.Max(targetWindowWidth, detection.Box.Width) / ColorPixelAimHorizontalOffsetScreenDivisor;
-        PointF targetCenter = new(
-            detection.Box.X + horizontalOffset,
-            detection.Box.Y + settings.PointBelowOffsetPixels);
-        float boxSize = Math.Max(8f, settings.StopLockSquareSizePixels);
         RectangleF targetBox = CreateCenteredBox(targetCenter, new SizeF(boxSize, boxSize));
         return detection with { Box = targetBox };
     }

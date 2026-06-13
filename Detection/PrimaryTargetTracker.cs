@@ -133,7 +133,7 @@ internal sealed class PrimaryTargetTracker
 
         foreach (DetectionResult detection in detections)
         {
-            if (detection.ClassId != lockedDetection.ClassId)
+            if (detection.ClassId != lockedDetection.ClassId || detection.Label != lockedDetection.Label)
             {
                 continue;
             }
