@@ -36,8 +36,7 @@ internal sealed class AimAssistController
     private DetectionResult? lastControlStableDetection;
     private Point lastControlMove = Point.Empty;
     private long lastControlMoveTick;
-    private int lastControlMoveTargetFrameVersion = -1;
-    private PointF? lastPhysicalAimReferencePoint;
+    private readonly List<PendingAimMove> pendingAimMoves = new();
 
     public AimAssistController()
     {
@@ -103,6 +102,8 @@ internal sealed class AimAssistController
                 return;
             }
 
+            RefreshPendingAimCompensation(capturedTick);
+
             if (detections.Count == 0)
             {
                 if (missTracker.RegisterMiss(settings))
@@ -150,8 +151,7 @@ internal sealed class AimAssistController
             state.PendingTargetSwitchTick = 0;
             state.HasAppliedInitialLockPull = true;
 
-            if (settings.PointBelowOffsetPixels <= 0f &&
-                AimPointCalculator.IsAimReferenceInsideStableBox(captureBounds, stableDetection, aimReferencePoint, settings.StopLockSquareSizePixels, settings.StopLockTopOffsetPixels))
+            if (IsAimReferenceInsideCompensatedStableBox(captureBounds, stableDetection, aimReferencePoint, settings))
             {
                 ClearControlTarget();
                 return;
@@ -163,9 +163,7 @@ internal sealed class AimAssistController
             lastTargetUpdateFrameVersion = processedFrameVersion;
             lastControlCaptureBounds = captureBounds;
             lastControlStableDetection = stableDetection;
-            state.PendingAimCompensation = PointF.Empty;
             state.LastPendingCompensationFrameVersion = processedFrameVersion;
-            lastPhysicalAimReferencePoint = aimReferencePoint;
         }
     }
 
@@ -194,9 +192,8 @@ internal sealed class AimAssistController
             }
 
             PointF aimReferencePoint = GetAimReferencePoint();
-            ReconcilePendingCompensationWithPhysicalCursor(aimReferencePoint);
-            if (settings.PointBelowOffsetPixels <= 0f && lastControlStableDetection is not null &&
-                AimPointCalculator.IsAimReferenceInsideStableBox(lastControlCaptureBounds, lastControlStableDetection, aimReferencePoint, settings.StopLockSquareSizePixels, settings.StopLockTopOffsetPixels))
+            if (lastControlStableDetection is not null &&
+                IsAimReferenceInsideCompensatedStableBox(lastControlCaptureBounds, lastControlStableDetection, aimReferencePoint, settings))
             {
                 return;
             }
@@ -229,6 +226,11 @@ internal sealed class AimAssistController
             finalMove = ClampMoveToObservedTarget(finalMove, observedTargetPoint, aimReferencePoint, settings);
             finalMove = LimitMoveAcceleration(finalMove, lastControlMove, targetPoint, aimReferencePoint, settings);
             finalMove = ClampMoveNoOvershoot(finalMove, observedTargetPoint, aimReferencePoint, settings);
+            if (lastControlStableDetection is not null)
+            {
+                finalMove = ClampMoveToCompensatedStableBox(finalMove, lastControlCaptureBounds, lastControlStableDetection, aimReferencePoint, settings);
+            }
+
             if (finalMove.IsEmpty)
             {
                 lastControlMove = Point.Empty;
@@ -237,20 +239,11 @@ internal sealed class AimAssistController
 
             lastControlMove = finalMove;
             lastControlMoveTick = now;
-            lastControlMoveTargetFrameVersion = lastTargetUpdateFrameVersion;
-            state.PendingAimCompensation = new PointF(
-                state.PendingAimCompensation.X + finalMove.X,
-                state.PendingAimCompensation.Y + finalMove.Y);
-            lastPhysicalAimReferencePoint = aimReferencePoint;
-            assistGate.MarkMoveSent(now);
+            SendRelativeMouseMove(finalMove.X, finalMove.Y);
+            long sentTick = Environment.TickCount64;
+            RegisterPendingAimMove(finalMove, sentTick);
+            assistGate.MarkMoveSent(sentTick);
         }
-
-        if (finalMove.IsEmpty)
-        {
-            return;
-        }
-
-        SendRelativeMouseMove(finalMove.X, finalMove.Y);
     }
 
     public PointF GetAimPoint(Rectangle captureBounds, DetectionResult detection, AimRuntimeSettings settings, int targetWindowWidth)
@@ -493,15 +486,104 @@ internal sealed class AimAssistController
             (int)Math.Round(unitY * forwardMove));
     }
 
-    private bool HasFreshFeedbackFrame(AimRuntimeSettings settings)
+    private bool IsAimReferenceInsideCompensatedStableBox(Rectangle captureBounds, DetectionResult detection, PointF aimReferencePoint, AimRuntimeSettings settings)
     {
-        if (lastControlMoveTargetFrameVersion < 0)
+        RectangleF stopBounds = GetCompensatedStableBoxBounds(captureBounds, detection, settings);
+        return stopBounds.Contains(aimReferencePoint);
+    }
+
+    private Point ClampMoveToCompensatedStableBox(Point move, Rectangle captureBounds, DetectionResult detection, PointF aimReferencePoint, AimRuntimeSettings settings)
+    {
+        if (move.IsEmpty)
         {
+            return Point.Empty;
+        }
+
+        RectangleF stopBounds = GetCompensatedStableBoxBounds(captureBounds, detection, settings);
+        if (stopBounds.Contains(aimReferencePoint))
+        {
+            return Point.Empty;
+        }
+
+        PointF moveEndPoint = new(aimReferencePoint.X + move.X, aimReferencePoint.Y + move.Y);
+        if (!TryGetSegmentRectangleEntry(aimReferencePoint, moveEndPoint, stopBounds, out float entryAmount))
+        {
+            return move;
+        }
+
+        if (entryAmount <= 0.001f)
+        {
+            return Point.Empty;
+        }
+
+        int clampedMoveX = (int)Math.Round(move.X * entryAmount);
+        int clampedMoveY = (int)Math.Round(move.Y * entryAmount);
+        return clampedMoveX == 0 && clampedMoveY == 0
+            ? Point.Empty
+            : new Point(clampedMoveX, clampedMoveY);
+    }
+
+    private RectangleF GetCompensatedStableBoxBounds(Rectangle captureBounds, DetectionResult detection, AimRuntimeSettings settings)
+    {
+        RectangleF screenBounds = AimPointCalculator.GetDetectionScreenBounds(captureBounds, detection);
+        RectangleF compensatedBounds = new(
+            screenBounds.X - state.PendingAimCompensation.X,
+            screenBounds.Y - state.PendingAimCompensation.Y,
+            screenBounds.Width,
+            screenBounds.Height);
+        return AimPointCalculator.GetLockSquareBounds(compensatedBounds, settings.StopLockSquareSizePixels, settings.StopLockTopOffsetPixels);
+    }
+
+    private static bool TryGetSegmentRectangleEntry(PointF start, PointF end, RectangleF bounds, out float entryAmount)
+    {
+        entryAmount = 0f;
+        float exitAmount = 1f;
+        float deltaX = end.X - start.X;
+        float deltaY = end.Y - start.Y;
+
+        return ClipSegmentAxis(-deltaX, start.X - bounds.Left, ref entryAmount, ref exitAmount) &&
+            ClipSegmentAxis(deltaX, bounds.Right - start.X, ref entryAmount, ref exitAmount) &&
+            ClipSegmentAxis(-deltaY, start.Y - bounds.Top, ref entryAmount, ref exitAmount) &&
+            ClipSegmentAxis(deltaY, bounds.Bottom - start.Y, ref entryAmount, ref exitAmount) &&
+            entryAmount <= exitAmount &&
+            entryAmount <= 1f &&
+            exitAmount >= 0f;
+    }
+
+    private static bool ClipSegmentAxis(float direction, float distance, ref float entryAmount, ref float exitAmount)
+    {
+        if (MathF.Abs(direction) <= 0.001f)
+        {
+            return distance >= 0f;
+        }
+
+        float amount = distance / direction;
+        if (direction < 0f)
+        {
+            if (amount > exitAmount)
+            {
+                return false;
+            }
+
+            if (amount > entryAmount)
+            {
+                entryAmount = amount;
+            }
+
             return true;
         }
 
-        int requiredFrameGap = Math.Max(1, settings.FeedbackFrameDelay + 1);
-        return lastTargetUpdateFrameVersion - lastControlMoveTargetFrameVersion >= requiredFrameGap;
+        if (amount < entryAmount)
+        {
+            return false;
+        }
+
+        if (amount < exitAmount)
+        {
+            exitAmount = amount;
+        }
+
+        return true;
     }
 
     private PointF ApplyPendingCompensation(PointF point)
@@ -511,37 +593,49 @@ internal sealed class AimAssistController
             point.Y - state.PendingAimCompensation.Y);
     }
 
-    private void ReconcilePendingCompensationWithPhysicalCursor(PointF currentAimReferencePoint)
+    private void RefreshPendingAimCompensation(long capturedTick)
     {
-        if (lastPhysicalAimReferencePoint is null || state.PendingAimCompensation.IsEmpty)
+        if (pendingAimMoves.Count == 0)
         {
-            lastPhysicalAimReferencePoint = currentAimReferencePoint;
+            state.PendingAimCompensation = PointF.Empty;
             return;
         }
 
-        PointF physicalDelta = new(
-            currentAimReferencePoint.X - lastPhysicalAimReferencePoint.Value.X,
-            currentAimReferencePoint.Y - lastPhysicalAimReferencePoint.Value.Y);
-        state.PendingAimCompensation = new PointF(
-            ReduceCompensationAxis(state.PendingAimCompensation.X, physicalDelta.X),
-            ReduceCompensationAxis(state.PendingAimCompensation.Y, physicalDelta.Y));
-        lastPhysicalAimReferencePoint = currentAimReferencePoint;
+        float pendingX = 0f;
+        float pendingY = 0f;
+        int writeIndex = 0;
+        for (int i = 0; i < pendingAimMoves.Count; i++)
+        {
+            PendingAimMove pendingMove = pendingAimMoves[i];
+            if (pendingMove.SentTick <= capturedTick)
+            {
+                continue;
+            }
+
+            pendingAimMoves[writeIndex++] = pendingMove;
+            pendingX += pendingMove.Move.X;
+            pendingY += pendingMove.Move.Y;
+        }
+
+        if (writeIndex < pendingAimMoves.Count)
+        {
+            pendingAimMoves.RemoveRange(writeIndex, pendingAimMoves.Count - writeIndex);
+        }
+
+        state.PendingAimCompensation = new PointF(pendingX, pendingY);
     }
 
-    private static float ReduceCompensationAxis(float pendingCompensation, float physicalDelta)
+    private void RegisterPendingAimMove(Point move, long sentTick)
     {
-        if (MathF.Abs(pendingCompensation) <= 0.001f || MathF.Abs(physicalDelta) <= 0.001f)
+        if (move.IsEmpty)
         {
-            return pendingCompensation;
+            return;
         }
 
-        if (Math.Sign(pendingCompensation) != Math.Sign(physicalDelta))
-        {
-            return pendingCompensation;
-        }
-
-        float remaining = MathF.Abs(pendingCompensation) - MathF.Abs(physicalDelta);
-        return remaining <= 0.001f ? 0f : Math.Sign(pendingCompensation) * remaining;
+        pendingAimMoves.Add(new PendingAimMove(move, sentTick));
+        state.PendingAimCompensation = new PointF(
+            state.PendingAimCompensation.X + move.X,
+            state.PendingAimCompensation.Y + move.Y);
     }
 
     private void ResetTrackingCore()
@@ -561,8 +655,7 @@ internal sealed class AimAssistController
         lastControlStableDetection = null;
         lastControlMove = Point.Empty;
         lastControlMoveTick = 0;
-        lastControlMoveTargetFrameVersion = -1;
-        lastPhysicalAimReferencePoint = null;
+        pendingAimMoves.Clear();
         state.PendingAimCompensation = PointF.Empty;
         state.LastPendingCompensationFrameVersion = -1;
     }
@@ -572,4 +665,6 @@ internal sealed class AimAssistController
         Point cursorPosition = Cursor.Position;
         return new PointF(cursorPosition.X, cursorPosition.Y);
     }
+
+    private readonly record struct PendingAimMove(Point Move, long SentTick);
 }
