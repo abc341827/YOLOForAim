@@ -8,9 +8,9 @@ namespace YOLOForAim;
 /// </summary>
 internal static class AimMovementCalculator
 {
-    private const float BaseVelocityFeedForwardSeconds = 0.034f;
-    private const float MaxAdaptiveVelocityLeadSeconds = 0.026f;
-    private const float MaxVelocityFeedForwardPixels = 18f;
+    private const float VelocityFeedForwardScale = 1.15f;
+    private const float MaxVelocityFeedForwardSeconds = 0.018f;
+    private const float MaxVelocityFeedForwardPixels = 10f;
 
     public static float GetDistanceToTarget(PointF targetPoint, PointF referencePoint)
     {
@@ -19,7 +19,7 @@ internal static class AimMovementCalculator
         return MathF.Sqrt((rawMoveX * rawMoveX) + (rawMoveY * rawMoveY));
     }
 
-    public static Point CalculateMove(PointF targetPoint, PointF referencePoint, AimRuntimeSettings settings, float distanceToTarget, PointF targetVelocity)
+    public static Point CalculateMove(PointF targetPoint, PointF referencePoint, AimRuntimeSettings settings, float distanceToTarget, PointF targetVelocity, float controlDeltaSeconds)
     {
         float rawMoveX = targetPoint.X - referencePoint.X;
         float rawMoveY = targetPoint.Y - referencePoint.Y;
@@ -33,7 +33,7 @@ internal static class AimMovementCalculator
             moveY *= slowdownScale;
         }
 
-        PointF feedForwardMove = GetVelocityFeedForwardMove(targetVelocity, settings, distanceToTarget, rawMoveX, rawMoveY);
+        PointF feedForwardMove = GetVelocityFeedForwardMove(targetVelocity, settings, distanceToTarget, rawMoveX, rawMoveY, controlDeltaSeconds);
         moveX += feedForwardMove.X;
         moveY += feedForwardMove.Y;
 
@@ -51,7 +51,7 @@ internal static class AimMovementCalculator
             ClampMoveAxisToTarget((int)Math.Round(moveY), rawMoveY, MathF.Abs(feedForwardMove.Y)));
     }
 
-    private static PointF GetVelocityFeedForwardMove(PointF targetVelocity, AimRuntimeSettings settings, float distanceToTarget, float rawMoveX, float rawMoveY)
+    private static PointF GetVelocityFeedForwardMove(PointF targetVelocity, AimRuntimeSettings settings, float distanceToTarget, float rawMoveX, float rawMoveY, float controlDeltaSeconds)
     {
         float velocityPixelsPerSecond = MathF.Sqrt((targetVelocity.X * targetVelocity.X) + (targetVelocity.Y * targetVelocity.Y));
         if (velocityPixelsPerSecond <= 0.001f)
@@ -62,8 +62,7 @@ internal static class AimMovementCalculator
         float velocityUnitX = targetVelocity.X / velocityPixelsPerSecond;
         float velocityUnitY = targetVelocity.Y / velocityPixelsPerSecond;
         float lagAlongVelocityPixels = (rawMoveX * velocityUnitX) + (rawMoveY * velocityUnitY);
-        float adaptiveLeadSeconds = Math.Clamp(lagAlongVelocityPixels / velocityPixelsPerSecond, 0f, MaxAdaptiveVelocityLeadSeconds);
-        float feedForwardSeconds = BaseVelocityFeedForwardSeconds + adaptiveLeadSeconds;
+        float feedForwardSeconds = Math.Clamp(controlDeltaSeconds * VelocityFeedForwardScale, 0f, MaxVelocityFeedForwardSeconds);
 
         float feedForwardX = targetVelocity.X * feedForwardSeconds * settings.SpeedMultiplier;
         float feedForwardY = targetVelocity.Y * feedForwardSeconds * settings.SpeedMultiplier;
@@ -73,7 +72,7 @@ internal static class AimMovementCalculator
             return PointF.Empty;
         }
 
-        float maxFeedForwardPixels = Math.Min(MaxVelocityFeedForwardPixels, Math.Max(3f, settings.MaxStepPixels * 0.5f));
+        float maxFeedForwardPixels = Math.Min(MaxVelocityFeedForwardPixels, Math.Max(1f, settings.MaxStepPixels * 0.2f));
         if (feedForwardDistance > maxFeedForwardPixels)
         {
             float scale = maxFeedForwardPixels / feedForwardDistance;

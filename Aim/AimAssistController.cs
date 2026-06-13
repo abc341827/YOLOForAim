@@ -18,6 +18,8 @@ internal sealed class AimAssistController
     private const float MinOutlierRejectDistancePixels = 120f;
     private const int MaxControlTargetAgeMs = 120;
     private const float ControlMoveAccelerationScale = 0.45f;
+    private const float MaxControlDeltaSeconds = 1f / 30f;
+    private const float MaxControlSmoothingFactor = 0.22f;
 
     private readonly object syncRoot = new();
     private readonly AimRuntimeState state = new();
@@ -32,6 +34,7 @@ internal sealed class AimAssistController
     private Rectangle lastControlCaptureBounds;
     private DetectionResult? lastControlStableDetection;
     private Point lastControlMove = Point.Empty;
+    private long lastControlMoveTick;
 
     public AimAssistController()
     {
@@ -165,9 +168,10 @@ internal sealed class AimAssistController
         lock (syncRoot)
         {
             long now = Environment.TickCount64;
-            if (!hasControlTarget || !assistGate.IsAssistActive(settings, now))
+            bool assistActive = assistGate.IsAssistActive(settings, now);
+            if (!hasControlTarget || !assistActive)
             {
-                if (!assistGate.IsAssistActive(settings, now))
+                if (!assistActive)
                 {
                     ResetTrackingCore();
                 }
@@ -203,7 +207,13 @@ internal sealed class AimAssistController
                 return;
             }
 
-            finalMove = AimMovementCalculator.CalculateMove(targetPoint, aimReferencePoint, settings, distanceToAimPoint, targetPrediction.Velocity);
+            float controlDeltaSeconds = lastControlMoveTick > 0
+                ? Math.Clamp((now - lastControlMoveTick) / 1000f, 0.001f, MaxControlDeltaSeconds)
+                : 1f / 60f;
+            float controlSmoothingFactor = Math.Min(MaxControlSmoothingFactor, GetFrameRateAdjustedBlend(settings.SmoothingFactor, controlDeltaSeconds));
+            AimRuntimeSettings controlSettings = settings with { SmoothingFactor = controlSmoothingFactor };
+
+            finalMove = AimMovementCalculator.CalculateMove(targetPoint, aimReferencePoint, controlSettings, distanceToAimPoint, targetPrediction.Velocity, controlDeltaSeconds);
             finalMove = ClampMoveToObservedTarget(finalMove, observedTargetPoint, aimReferencePoint, settings);
             finalMove = LimitMoveAcceleration(finalMove, lastControlMove, settings);
             if (finalMove.IsEmpty)
@@ -212,6 +222,7 @@ internal sealed class AimAssistController
             }
 
             lastControlMove = finalMove;
+            lastControlMoveTick = now;
             assistGate.MarkMoveSent(now);
         }
 
@@ -433,6 +444,7 @@ internal sealed class AimAssistController
         lastControlCaptureBounds = Rectangle.Empty;
         lastControlStableDetection = null;
         lastControlMove = Point.Empty;
+        lastControlMoveTick = 0;
     }
 
     private static PointF GetAimReferencePoint()
