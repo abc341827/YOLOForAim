@@ -16,7 +16,7 @@ namespace YOLOForAim
         private const int DefaultAimAssistFireGracePeriodMs = 120;
         private const int DefaultAimTargetTrackingBlendPercent = 35;
         private const int DefaultAimCloseRangeSlowdownPixels = 64;
-        private const int DefaultAimMoveCooldownMs = 0;
+        private const int DefaultAimMoveCooldownMs = 16;
         private const int DefaultAimPredictionLeadMs = 0;
         private const int DefaultAimMaxPredictionPixels = 0;
         private const int DefaultAimVelocityFeedForwardMaxPixels = 0;
@@ -393,12 +393,14 @@ namespace YOLOForAim
             lblAimMaxStep.Text = "单次上限";
             toolTipDescriptions.SetToolTip(lblAimMaxStep, "单次 SendInput 最大鼠标指令量。高频跟踪建议 100 以上，误检时可降低。 ");
             lblAimMoveCooldown.Text = "移动间隔(ms)";
-            toolTipDescriptions.SetToolTip(lblAimMoveCooldown, "两次鼠标移动之间的最小间隔。0 表示尽可能高频。 ");
+            toolTipDescriptions.SetToolTip(lblAimMoveCooldown, "两次鼠标移动之间的最小间隔。默认 16ms；每个检测结果最多只会触发一次移动。 ");
+            toolTipDescriptions.SetToolTip(numAimMoveCooldown, "两次鼠标移动之间的最小间隔。默认 16ms；每个检测结果最多只会触发一次移动。 ");
             lblAimCalibrationStep.Text = "校准步长";
             toolTipDescriptions.SetToolTip(lblAimCalibrationStep, "按 X 自动校准时每次发送的小步鼠标指令量。建议 5~12。 ");
             lblParameterHint.Text = "当前模式：高频检测 + 高频中心伺服。按 Z 开启检测，按 X 自动校准鼠标单位与画面像素比例。";
 
             numAimMaxStep.Maximum = 1000;
+            numAimMoveCooldown.Minimum = DefaultAimMoveCooldownMs;
             numAimMoveCooldown.Maximum = 50;
             HideObsoleteAimControls();
         }

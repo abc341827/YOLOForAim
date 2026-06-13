@@ -264,6 +264,11 @@ internal sealed class AimAssistController
                 return;
             }
 
+            if (lastTargetUpdateFrameVersion <= state.LastAimMoveFrameVersion)
+            {
+                return;
+            }
+
             finalMove = calibrationMode
                 ? CalculateCalibrationMove(targetPoint, aimReferencePoint, settings)
                 : CalculateDirectCenteringMove(targetPoint, aimReferencePoint, settings, targetPrediction.Velocity, calibratedPixelsPerMouseUnitX, calibratedPixelsPerMouseUnitY);
@@ -287,6 +292,7 @@ internal sealed class AimAssistController
 
             RegisterPendingAimMove(finalMove, sentTick);
             assistGate.MarkMoveSent(sentTick);
+            state.LastAimMoveFrameVersion = lastTargetUpdateFrameVersion;
             ResetPullStateForNextDetection();
         }
     }

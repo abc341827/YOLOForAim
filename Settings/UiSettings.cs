@@ -22,7 +22,7 @@ internal sealed record UiSettings(
     public const int DefaultAimAssistFireGracePeriodMs = 0;
     public const int DefaultAimTargetTrackingBlendPercent = 35;
     public const int DefaultAimCloseRangeSlowdownPixels = 64;
-    public const int DefaultAimMoveCooldownMs = 0;
+    public const int DefaultAimMoveCooldownMs = 16;
     public const int DefaultAimPredictionLeadMs = 0;
     public const int DefaultAimMaxPredictionPixels = 0;
     public const int DefaultAimVelocityFeedForwardMaxPixels = 0;
