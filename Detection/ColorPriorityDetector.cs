@@ -1,7 +1,7 @@
 ﻿namespace YOLOForAim;
 
 /// <summary>
-/// 组合检测器：先跑颜色检测，命中时直接使用颜色结果；颜色没有结果时回退到主检测器。
+/// 组合检测器：同一帧同时运行颜色检测和主检测器，颜色命中时优先使用颜色结果，否则使用主检测器结果。
 /// </summary>
 internal sealed class ColorPriorityDetector : IDetector, IColorDetectionOptionsSink
 {
@@ -14,14 +14,15 @@ internal sealed class ColorPriorityDetector : IDetector, IColorDetectionOptionsS
         this.fallbackDetector = fallbackDetector;
     }
 
-    public string ModelSummary => $"颜色优先检测: {colorDetector.ModelSummary}; 无颜色结果时回退: {fallbackDetector.ModelSummary}";
+    public string ModelSummary => $"颜色优先检测: {colorDetector.ModelSummary}; 同帧运行并在无颜色结果时采用: {fallbackDetector.ModelSummary}";
 
     public DetectionRunResult Detect(byte[] sourcePixels, int sourceWidth, int sourceHeight, int sourceStride, Rectangle sourceRegion, int referenceWidth)
     {
         DetectionRunResult colorResult = colorDetector.Detect(sourcePixels, sourceWidth, sourceHeight, sourceStride, sourceRegion, referenceWidth);
+        DetectionRunResult fallbackResult = fallbackDetector.Detect(sourcePixels, sourceWidth, sourceHeight, sourceStride, sourceRegion, referenceWidth);
         return colorResult.Detections.Count > 0
             ? colorResult
-            : fallbackDetector.Detect(sourcePixels, sourceWidth, sourceHeight, sourceStride, sourceRegion, referenceWidth);
+            : fallbackResult;
     }
 
     public void UpdateColorDetectionOptions(ColorDetectionOptions primaryOptions)
