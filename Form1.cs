@@ -26,6 +26,7 @@ namespace YOLOForAim
         private CancellationTokenSource? detectionCancellationTokenSource;
         private Task? captureTask;
         private Task? inferenceTask;
+        private Task? aimControlTask;
         private IDetector? detector;
         private int processedFrameCounter;
         private string diagnosticsHeader = string.Empty;
@@ -143,6 +144,7 @@ namespace YOLOForAim
                 overlayRefreshTimer.Stop();
                 captureTask?.Wait(500);
                 inferenceTask?.Wait(500);
+                aimControlTask?.Wait(500);
             }
             catch
             {

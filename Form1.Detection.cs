@@ -63,6 +63,7 @@ public partial class Form1
         SetForegroundWindow(selectedHwnd);
         captureTask = Task.Run(() => RunCaptureLoopAsync(detectionCancellationTokenSource.Token), detectionCancellationTokenSource.Token);
         inferenceTask = Task.Run(() => RunInferenceLoopAsync(detectionCancellationTokenSource.Token), detectionCancellationTokenSource.Token);
+        aimControlTask = Task.Run(() => RunAimControlLoopAsync(detectionCancellationTokenSource.Token), detectionCancellationTokenSource.Token);
 
         btnStartDetection.Enabled = false;
         btnStopDetection.Enabled = true;
@@ -99,6 +100,7 @@ public partial class Form1
         try
         {
             var runningTasks = new[] { captureTask, inferenceTask }
+                .Append(aimControlTask)
                 .Where(static task => task is not null)
                 .Cast<Task>()
                 .ToArray();
@@ -111,6 +113,7 @@ public partial class Form1
         {
             captureTask = null;
             inferenceTask = null;
+            aimControlTask = null;
             detectionCancellationTokenSource?.Dispose();
             detectionCancellationTokenSource = null;
             lock (latestFrameLock)
@@ -132,6 +135,22 @@ public partial class Form1
             btnStopDetection.Enabled = false;
             lblStatus.Text = "检测已停止。";
             UpdateDiagnosticsText();
+        }
+    }
+
+    private async Task RunAimControlLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                aimAssistController.TryRunControlTick(currentAimSettings);
+                await Task.Delay(4, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
         }
     }
 

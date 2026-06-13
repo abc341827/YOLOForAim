@@ -22,6 +22,11 @@ internal sealed class AimTargetPredictor
         this.state = state;
     }
 
+    public void Reset()
+    {
+        kalmanFilter = null;
+    }
+
     public TargetPrediction Predict(PointF observedTargetPoint, bool resetTargetTracking, long now, long capturedTick)
     {
         if (resetTargetTracking || state.PreviousObservedTargetPoint is null || state.PreviousObservedTargetTick <= 0)
@@ -48,6 +53,25 @@ internal sealed class AimTargetPredictor
 
         float predictionSeconds = Math.Clamp(((now - capturedTick) / 1000f) + PredictionLeadSeconds, 0f, MaxPredictionSeconds);
         return new TargetPrediction(kalmanFilter.Predict(predictionSeconds, MaxPredictionPixels), kalmanFilter.Velocity);
+    }
+
+    public bool TryPredictCurrent(long now, long capturedTick, long lastUpdateTick, out TargetPrediction prediction)
+    {
+        prediction = default;
+        if (kalmanFilter is null || state.PreviousObservedTargetTick <= 0)
+        {
+            return false;
+        }
+
+        float staleSeconds = Math.Max(0f, (now - lastUpdateTick) / 1000f);
+        if (staleSeconds > MaxTrackingGapSeconds)
+        {
+            return false;
+        }
+
+        float predictionSeconds = Math.Clamp(((now - capturedTick) / 1000f) + PredictionLeadSeconds, 0f, MaxPredictionSeconds);
+        prediction = new TargetPrediction(kalmanFilter.Predict(predictionSeconds, MaxPredictionPixels), kalmanFilter.Velocity);
+        return true;
     }
 }
 

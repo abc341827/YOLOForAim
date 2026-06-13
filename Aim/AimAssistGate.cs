@@ -42,9 +42,19 @@ internal sealed class AimAssistGate
         return state.LastAimMoveFrameVersion < 0 || processedFrameVersion - state.LastAimMoveFrameVersion > settings.FeedbackFrameDelay;
     }
 
+    public bool CanSendMoveByTime(AimRuntimeSettings settings, long now)
+    {
+        return state.LastAimMoveTick <= 0 || settings.MoveCooldownMs <= 0 || now - state.LastAimMoveTick >= settings.MoveCooldownMs;
+    }
+
     public void MarkMoveSent(long now, int processedFrameVersion)
     {
         state.LastAimMoveTick = now;
         state.LastAimMoveFrameVersion = processedFrameVersion;
+    }
+
+    public void MarkMoveSent(long now)
+    {
+        state.LastAimMoveTick = now;
     }
 }

@@ -16,13 +16,22 @@ internal sealed class AimAssistController
     private const float AdaptiveTrackingDistancePixels = 80f;
     private const float MaxAdaptiveTrackingBlend = 0.85f;
     private const float MinOutlierRejectDistancePixels = 120f;
+    private const int MaxControlTargetAgeMs = 120;
+    private const float ControlMoveAccelerationScale = 0.45f;
 
+    private readonly object syncRoot = new();
     private readonly AimRuntimeState state = new();
     private readonly AimTargetSelector targetSelector = new();
     private readonly AimTargetStabilizer targetStabilizer;
     private readonly AimTargetPredictor targetPredictor;
     private readonly AimAssistGate assistGate;
     private readonly AimMissTracker missTracker;
+    private bool hasControlTarget;
+    private long lastTargetUpdateTick;
+    private long lastTargetCapturedTick;
+    private Rectangle lastControlCaptureBounds;
+    private DetectionResult? lastControlStableDetection;
+    private Point lastControlMove = Point.Empty;
 
     public AimAssistController()
     {
@@ -32,109 +41,186 @@ internal sealed class AimAssistController
         missTracker = new AimMissTracker(state);
     }
 
-    public DetectionResult? StabilizedLockedDetection => state.StabilizedLockedDetection;
+    public DetectionResult? StabilizedLockedDetection
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return state.StabilizedLockedDetection;
+            }
+        }
+    }
 
-    public int SuppressOverlayFrameVersion => state.SuppressOverlayFrameVersion;
+    public int SuppressOverlayFrameVersion
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return state.SuppressOverlayFrameVersion;
+            }
+        }
+    }
 
     public void ResetRuntime()
     {
-        state.ResetRuntime();
+        lock (syncRoot)
+        {
+            state.ResetRuntime();
+            ClearControlTarget();
+            targetPredictor.Reset();
+        }
     }
 
     public void ResetTracking()
     {
-        state.ResetTracking();
+        lock (syncRoot)
+        {
+            ResetTrackingCore();
+        }
     }
 
     public void TryMoveToNearestDetection(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, int processedFrameVersion, long capturedTick, AimRuntimeSettings settings, int targetWindowWidth)
     {
-        long now = Environment.TickCount64;
-        if (processedFrameVersion <= state.SuspendAimUntilFrameVersion || now < state.SuspendAimUntilTick)
+        lock (syncRoot)
         {
-            return;
-        }
-
-        if (captureBounds.IsEmpty || !assistGate.IsAssistActive(settings, now))
-        {
-            ResetTracking();
-            return;
-        }
-
-        if (detections.Count == 0)
-        {
-            if (missTracker.RegisterMiss(settings))
+            long now = Environment.TickCount64;
+            if (processedFrameVersion <= state.SuspendAimUntilFrameVersion || now < state.SuspendAimUntilTick)
             {
-                ResetTracking();
+                return;
             }
 
-            return;
-        }
-
-        PointF aimReferencePoint = GetAimReferencePoint();
-        TargetCandidate? nearestDetection = SelectTargetCandidate(detections, captureBounds, aimReferencePoint, settings, targetWindowWidth);
-        if (nearestDetection is null)
-        {
-            if (missTracker.RegisterMiss(settings))
+            if (captureBounds.IsEmpty || !assistGate.IsAssistActive(settings, now))
             {
-                ResetTracking();
+                ResetTrackingCore();
+                return;
             }
 
-            return;
-        }
-
-        DetectionResult currentDetection = nearestDetection.Detection;
-        bool resetTargetTracking = state.StabilizedLockedDetection is null || !IsLikelySameLockedTarget(currentDetection, captureBounds, settings, targetWindowWidth);
-        PointF rawObservedTargetPoint = GetAimPoint(captureBounds, currentDetection, settings, targetWindowWidth);
-        if (ShouldRejectSuddenTargetJump(rawObservedTargetPoint, resetTargetTracking, settings))
-        {
-            if (missTracker.RegisterMiss(settings))
+            if (detections.Count == 0)
             {
-                ResetTracking();
+                if (missTracker.RegisterMiss(settings))
+                {
+                    ResetTrackingCore();
+                }
+
+                return;
             }
 
-            return;
+            PointF aimReferencePoint = GetAimReferencePoint();
+            TargetCandidate? nearestDetection = SelectTargetCandidate(detections, captureBounds, aimReferencePoint, settings, targetWindowWidth);
+            if (nearestDetection is null)
+            {
+                if (missTracker.RegisterMiss(settings))
+                {
+                    ResetTrackingCore();
+                }
+
+                return;
+            }
+
+            DetectionResult currentDetection = nearestDetection.Detection;
+            bool resetTargetTracking = state.StabilizedLockedDetection is null || !IsLikelySameLockedTarget(currentDetection, captureBounds, settings, targetWindowWidth);
+            PointF rawObservedTargetPoint = GetAimPoint(captureBounds, currentDetection, settings, targetWindowWidth);
+            if (ShouldRejectSuddenTargetJump(rawObservedTargetPoint, resetTargetTracking, settings))
+            {
+                if (missTracker.RegisterMiss(settings))
+                {
+                    ResetTrackingCore();
+                }
+
+                return;
+            }
+
+            DetectionResult stableDetection = targetStabilizer.GetStabilizedDetection(currentDetection, captureBounds, resetTargetTracking);
+            PointF observedTargetPoint = GetAimPoint(captureBounds, stableDetection, settings, targetWindowWidth);
+            TargetPrediction targetPrediction = targetPredictor.Predict(observedTargetPoint, resetTargetTracking, now, capturedTick);
+            PointF targetPoint = targetPrediction.PredictedPoint;
+            state.LockedTargetScreenPoint = GetAimPoint(captureBounds, currentDetection, settings, targetWindowWidth);
+            state.SmoothedTargetScreenPoint = state.SmoothedTargetScreenPoint is null || resetTargetTracking
+                ? targetPoint
+                : LerpPoint(state.SmoothedTargetScreenPoint.Value, targetPoint, GetAdaptiveTargetTrackingBlend(state.SmoothedTargetScreenPoint.Value, targetPoint, settings));
+            missTracker.RegisterHit();
+            state.PendingTargetSwitchTick = 0;
+            state.HasAppliedInitialLockPull = true;
+
+            if (settings.PointBelowOffsetPixels <= 0f &&
+                AimPointCalculator.IsAimReferenceInsideStableBox(captureBounds, stableDetection, aimReferencePoint, settings.StopLockSquareSizePixels, settings.StopLockTopOffsetPixels))
+            {
+                ClearControlTarget();
+                return;
+            }
+
+            hasControlTarget = true;
+            lastTargetUpdateTick = now;
+            lastTargetCapturedTick = capturedTick;
+            lastControlCaptureBounds = captureBounds;
+            lastControlStableDetection = stableDetection;
         }
+    }
 
-        DetectionResult stableDetection = targetStabilizer.GetStabilizedDetection(currentDetection, captureBounds, resetTargetTracking);
-        PointF observedTargetPoint = GetAimPoint(captureBounds, stableDetection, settings, targetWindowWidth);
-        TargetPrediction targetPrediction = targetPredictor.Predict(observedTargetPoint, resetTargetTracking, now, capturedTick);
-        PointF targetPoint = observedTargetPoint;
-        state.LockedTargetScreenPoint = GetAimPoint(captureBounds, currentDetection, settings, targetWindowWidth);
-        state.SmoothedTargetScreenPoint = state.SmoothedTargetScreenPoint is null || resetTargetTracking
-            ? targetPoint
-            : LerpPoint(state.SmoothedTargetScreenPoint.Value, targetPoint, GetAdaptiveTargetTrackingBlend(state.SmoothedTargetScreenPoint.Value, targetPoint, settings));
-        targetPoint = state.SmoothedTargetScreenPoint.Value;
-        missTracker.RegisterHit();
-        state.PendingTargetSwitchTick = 0;
-        state.HasAppliedInitialLockPull = true;
-
-        float distanceToObservedAimPoint = AimMovementCalculator.GetDistanceToTarget(observedTargetPoint, aimReferencePoint);
-        float distanceToAimPoint = AimMovementCalculator.GetDistanceToTarget(targetPoint, aimReferencePoint);
-        if (settings.PointBelowOffsetPixels <= 0f &&
-            AimPointCalculator.IsAimReferenceInsideStableBox(captureBounds, stableDetection, aimReferencePoint, settings.StopLockSquareSizePixels, settings.StopLockTopOffsetPixels))
+    public void TryRunControlTick(AimRuntimeSettings settings)
+    {
+        Point finalMove;
+        lock (syncRoot)
         {
-            return;
+            long now = Environment.TickCount64;
+            if (!hasControlTarget || !assistGate.IsAssistActive(settings, now))
+            {
+                if (!assistGate.IsAssistActive(settings, now))
+                {
+                    ResetTrackingCore();
+                }
+
+                return;
+            }
+
+            if (now - lastTargetUpdateTick > MaxControlTargetAgeMs ||
+                !targetPredictor.TryPredictCurrent(now, lastTargetCapturedTick, lastTargetUpdateTick, out TargetPrediction targetPrediction))
+            {
+                ClearControlTarget();
+                return;
+            }
+
+            PointF aimReferencePoint = GetAimReferencePoint();
+            if (settings.PointBelowOffsetPixels <= 0f && lastControlStableDetection is not null &&
+                AimPointCalculator.IsAimReferenceInsideStableBox(lastControlCaptureBounds, lastControlStableDetection, aimReferencePoint, settings.StopLockSquareSizePixels, settings.StopLockTopOffsetPixels))
+            {
+                return;
+            }
+
+            PointF targetPoint = targetPrediction.PredictedPoint;
+            PointF observedTargetPoint = state.SmoothedTargetScreenPoint ?? state.LockedTargetScreenPoint ?? targetPoint;
+            float distanceToAimPoint = AimMovementCalculator.GetDistanceToTarget(targetPoint, aimReferencePoint);
+            float distanceToObservedAimPoint = AimMovementCalculator.GetDistanceToTarget(observedTargetPoint, aimReferencePoint);
+            if (distanceToObservedAimPoint <= settings.DeadzonePixels && !ShouldVelocityFollow(targetPrediction.Velocity, settings))
+            {
+                return;
+            }
+
+            if (!assistGate.CanSendMoveByTime(settings, now))
+            {
+                return;
+            }
+
+            finalMove = AimMovementCalculator.CalculateMove(targetPoint, aimReferencePoint, settings, distanceToAimPoint, targetPrediction.Velocity);
+            finalMove = ClampMoveToObservedTarget(finalMove, observedTargetPoint, aimReferencePoint, settings);
+            finalMove = LimitMoveAcceleration(finalMove, lastControlMove, settings);
+            if (finalMove.IsEmpty)
+            {
+                return;
+            }
+
+            lastControlMove = finalMove;
+            assistGate.MarkMoveSent(now);
         }
 
-        if (distanceToObservedAimPoint <= settings.DeadzonePixels && !ShouldVelocityFollow(targetPrediction.Velocity, settings))
-        {
-            return;
-        }
-
-        if (!assistGate.CanSendMove(settings, now, processedFrameVersion))
-        {
-            return;
-        }
-
-        Point finalMove = AimMovementCalculator.CalculateMove(targetPoint, aimReferencePoint, settings, distanceToAimPoint, targetPrediction.Velocity);
-        finalMove = ClampMoveToObservedTarget(finalMove, observedTargetPoint, aimReferencePoint, settings);
         if (finalMove.IsEmpty)
         {
             return;
         }
 
         SendRelativeMouseMove(finalMove.X, finalMove.Y);
-        assistGate.MarkMoveSent(now, processedFrameVersion);
     }
 
     public PointF GetAimPoint(Rectangle captureBounds, DetectionResult detection, AimRuntimeSettings settings, int targetWindowWidth)
@@ -308,6 +394,45 @@ internal sealed class AimAssistController
         return new Point(
             (int)Math.Round((forwardMove * unitX) + lateralMoveX),
             (int)Math.Round((forwardMove * unitY) + lateralMoveY));
+    }
+
+    private static Point LimitMoveAcceleration(Point move, Point previousMove, AimRuntimeSettings settings)
+    {
+        if (previousMove.IsEmpty || move.IsEmpty)
+        {
+            return move;
+        }
+
+        float maxDelta = Math.Max(1f, settings.MaxStepPixels * settings.SpeedMultiplier * ControlMoveAccelerationScale);
+        float deltaX = move.X - previousMove.X;
+        float deltaY = move.Y - previousMove.Y;
+        float deltaDistance = MathF.Sqrt((deltaX * deltaX) + (deltaY * deltaY));
+        if (deltaDistance <= maxDelta || deltaDistance <= 0.001f)
+        {
+            return move;
+        }
+
+        float scale = maxDelta / deltaDistance;
+        return new Point(
+            (int)Math.Round(previousMove.X + (deltaX * scale)),
+            (int)Math.Round(previousMove.Y + (deltaY * scale)));
+    }
+
+    private void ResetTrackingCore()
+    {
+        state.ResetTracking();
+        targetPredictor.Reset();
+        ClearControlTarget();
+    }
+
+    private void ClearControlTarget()
+    {
+        hasControlTarget = false;
+        lastTargetUpdateTick = 0;
+        lastTargetCapturedTick = 0;
+        lastControlCaptureBounds = Rectangle.Empty;
+        lastControlStableDetection = null;
+        lastControlMove = Point.Empty;
     }
 
     private static PointF GetAimReferencePoint()
