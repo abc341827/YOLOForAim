@@ -1,5 +1,4 @@
 ﻿using System.Drawing;
-using System.Windows.Forms;
 using static YOLOForAim.AimGeometry;
 using static YOLOForAim.MouseInputController;
 
@@ -33,6 +32,7 @@ internal sealed class AimAssistController
     private long lastTargetCapturedTick;
     private int lastTargetUpdateFrameVersion = -1;
     private Rectangle lastControlCaptureBounds;
+    private Rectangle lastControlAimReferenceBounds;
     private DetectionResult? lastControlStableDetection;
     private PointF lastControlObservedTargetPoint;
     private Point lastControlMove = Point.Empty;
@@ -87,7 +87,7 @@ internal sealed class AimAssistController
         }
     }
 
-    public void TryMoveToNearestDetection(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, int processedFrameVersion, long capturedTick, AimRuntimeSettings settings, int targetWindowWidth)
+    public void TryMoveToNearestDetection(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, Rectangle aimReferenceBounds, int processedFrameVersion, long capturedTick, AimRuntimeSettings settings, int targetWindowWidth)
     {
         lock (syncRoot)
         {
@@ -115,7 +115,7 @@ internal sealed class AimAssistController
                 return;
             }
 
-            PointF aimReferencePoint = GetAimReferencePoint();
+            PointF aimReferencePoint = GetAimReferencePoint(aimReferenceBounds);
             TargetCandidate? nearestDetection = SelectTargetCandidate(detections, captureBounds, aimReferencePoint, settings, targetWindowWidth);
             if (nearestDetection is null)
             {
@@ -164,6 +164,7 @@ internal sealed class AimAssistController
             lastTargetCapturedTick = capturedTick;
             lastTargetUpdateFrameVersion = processedFrameVersion;
             lastControlCaptureBounds = captureBounds;
+            lastControlAimReferenceBounds = aimReferenceBounds;
             lastControlStableDetection = stableDetection;
             lastControlObservedTargetPoint = observedTargetPoint;
             state.LastPendingCompensationFrameVersion = processedFrameVersion;
@@ -194,7 +195,7 @@ internal sealed class AimAssistController
                 return;
             }
 
-            PointF aimReferencePoint = GetAimReferencePoint();
+            PointF aimReferencePoint = GetAimReferencePoint(lastControlAimReferenceBounds);
             bool velocityFollow = ShouldVelocityFollow(targetPrediction.Velocity, settings);
             if (lastControlStableDetection is not null &&
                 !velocityFollow &&
@@ -676,6 +677,7 @@ internal sealed class AimAssistController
         lastTargetCapturedTick = 0;
         lastTargetUpdateFrameVersion = -1;
         lastControlCaptureBounds = Rectangle.Empty;
+        lastControlAimReferenceBounds = Rectangle.Empty;
         lastControlStableDetection = null;
         lastControlMove = Point.Empty;
         lastControlMoveTick = 0;
@@ -693,6 +695,7 @@ internal sealed class AimAssistController
         lastTargetCapturedTick = 0;
         lastTargetUpdateFrameVersion = -1;
         lastControlCaptureBounds = Rectangle.Empty;
+        lastControlAimReferenceBounds = Rectangle.Empty;
         lastControlStableDetection = null;
         lastControlObservedTargetPoint = PointF.Empty;
         lastControlMove = Point.Empty;
@@ -712,6 +715,7 @@ internal sealed class AimAssistController
         lastTargetCapturedTick = 0;
         lastTargetUpdateFrameVersion = -1;
         lastControlCaptureBounds = Rectangle.Empty;
+        lastControlAimReferenceBounds = Rectangle.Empty;
         lastControlStableDetection = null;
         lastControlObservedTargetPoint = PointF.Empty;
         lastControlMove = Point.Empty;
@@ -719,10 +723,11 @@ internal sealed class AimAssistController
         state.LastPendingCompensationFrameVersion = -1;
     }
 
-    private static PointF GetAimReferencePoint()
+    private static PointF GetAimReferencePoint(Rectangle captureBounds)
     {
-        Point cursorPosition = Cursor.Position;
-        return new PointF(cursorPosition.X, cursorPosition.Y);
+        return new PointF(
+            captureBounds.Left + (captureBounds.Width / 2f),
+            captureBounds.Top + (captureBounds.Height / 2f));
     }
 
     private readonly record struct PendingAimMove(Point Move, long SentTick);

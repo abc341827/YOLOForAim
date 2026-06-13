@@ -365,8 +365,11 @@ namespace YOLOForAim
             RefreshDetectionOverlay();
         }
 
-        private void UpdateOverlayState(Rectangle captureBounds, IReadOnlyList<DetectionResult> detections, int targetWindowWidth, int processedFrameVersion, long capturedTick)
+        private void UpdateOverlayState(Rectangle captureBounds, Rectangle windowBounds, IReadOnlyList<DetectionResult> detections, int targetWindowWidth, int processedFrameVersion, long capturedTick)
         {
+            Point windowCenter = new(
+                windowBounds.Left + (windowBounds.Width / 2),
+                windowBounds.Top + (windowBounds.Height / 2));
             overlayStateManager.Update(
                 captureBounds,
                 detections,
@@ -376,7 +379,7 @@ namespace YOLOForAim
                 inferenceFpsCounter.CurrentFps,
                 aimAssistController.StabilizedLockedDetection,
                 detection => aimAssistController.GetAimPoint(captureBounds, detection, currentAimSettings, targetWindowWidth),
-                Cursor.Position);
+                windowCenter);
         }
 
         private void ClearOverlayState()
@@ -442,9 +445,9 @@ namespace YOLOForAim
             return new CapturedFrame(bitmap, new Rectangle(captureLeft, captureTop, captureWidth, captureHeight));
         }
 
-        private void TryMoveMouseToNearestDetection(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, int targetWindowWidth, int processedFrameVersion, long capturedTick)
+        private void TryMoveMouseToNearestDetection(IReadOnlyList<DetectionResult> detections, Rectangle captureBounds, Rectangle windowBounds, int targetWindowWidth, int processedFrameVersion, long capturedTick)
         {
-            aimAssistController.TryMoveToNearestDetection(detections, captureBounds, processedFrameVersion, capturedTick, currentAimSettings, targetWindowWidth);
+            aimAssistController.TryMoveToNearestDetection(detections, captureBounds, windowBounds, processedFrameVersion, capturedTick, currentAimSettings, targetWindowWidth);
         }
 
         private void ResetAimRuntimeState()
