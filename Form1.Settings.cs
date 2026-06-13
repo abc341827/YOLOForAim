@@ -36,7 +36,9 @@ public partial class Form1
         SetNumericValue(numAimTrackingBlend, settings.AimTrackingBlendPercent);
         SetNumericValue(numAimCloseRangeSlowdown, settings.AimCloseRangeSlowdownPixels);
         SetNumericValue(numAimMoveCooldown, settings.AimMoveCooldownMs);
-        SetNumericValue(numAimFeedbackFrameDelay, settings.AimFeedbackFrameDelay);
+        SetNumericValue(numAimPredictionLead, settings.AimPredictionLeadMs);
+        SetNumericValue(numAimMaxPrediction, settings.AimMaxPredictionPixels);
+        SetNumericValue(numAimVelocityFeedForward, settings.AimVelocityFeedForwardMaxPixels);
         SetNumericValue(numAimInitialAcquireDistance, settings.AimInitialAcquireDistancePixels);
         SetNumericValue(numAimTrackedAcquireDistance, settings.AimTrackedAcquireDistancePixels);
         SetNumericValue(numAimStopInsideBoxArea, settings.AimStopLockSquareSizePixels);
@@ -66,7 +68,9 @@ public partial class Form1
             (int)numAimTrackingBlend.Value,
             (int)numAimCloseRangeSlowdown.Value,
             (int)numAimMoveCooldown.Value,
-            (int)numAimFeedbackFrameDelay.Value,
+            (int)numAimPredictionLead.Value,
+            (int)numAimMaxPrediction.Value,
+            (int)numAimVelocityFeedForward.Value,
             (int)numAimInitialAcquireDistance.Value,
             (int)numAimTrackedAcquireDistance.Value,
             (int)numAimStopInsideBoxArea.Value,

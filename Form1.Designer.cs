@@ -63,12 +63,16 @@
             this.numAimCloseRangeSlowdown = new System.Windows.Forms.NumericUpDown();
             this.lblAimMoveCooldown = new System.Windows.Forms.Label();
             this.numAimMoveCooldown = new System.Windows.Forms.NumericUpDown();
-            this.lblAimFeedbackFrameDelay = new System.Windows.Forms.Label();
-            this.numAimFeedbackFrameDelay = new System.Windows.Forms.NumericUpDown();
+            this.lblAimPredictionLead = new System.Windows.Forms.Label();
+            this.numAimPredictionLead = new System.Windows.Forms.NumericUpDown();
             this.lblAimStopInsideBoxArea = new System.Windows.Forms.Label();
             this.numAimStopInsideBoxArea = new System.Windows.Forms.NumericUpDown();
             this.lblAimStopBoxTopOffset = new System.Windows.Forms.Label();
             this.numAimStopBoxTopOffset = new System.Windows.Forms.NumericUpDown();
+            this.lblAimMaxPrediction = new System.Windows.Forms.Label();
+            this.numAimMaxPrediction = new System.Windows.Forms.NumericUpDown();
+            this.lblAimVelocityFeedForward = new System.Windows.Forms.Label();
+            this.numAimVelocityFeedForward = new System.Windows.Forms.NumericUpDown();
             this.lblAimInitialAcquireDistance = new System.Windows.Forms.Label();
             this.numAimInitialAcquireDistance = new System.Windows.Forms.NumericUpDown();
             this.lblAimTrackedAcquireDistance = new System.Windows.Forms.Label();
@@ -97,9 +101,11 @@
             ((System.ComponentModel.ISupportInitialize)(this.numAimTrackingBlend)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimCloseRangeSlowdown)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimMoveCooldown)).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)(this.numAimFeedbackFrameDelay)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimPredictionLead)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimStopInsideBoxArea)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimStopBoxTopOffset)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimMaxPrediction)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimVelocityFeedForward)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimInitialAcquireDistance)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimTrackedAcquireDistance)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBoxPreview)).BeginInit();
@@ -580,33 +586,33 @@
             0});
             this.toolTipDescriptions.SetToolTip(this.numAimMoveCooldown, "建议 8~12。太小容易重复补偿，太大则会降低跟枪速度。");
             // 
-            // lblAimFeedbackFrameDelay
+            // lblAimPredictionLead
             // 
-            this.lblAimFeedbackFrameDelay.AutoSize = true;
-            this.lblAimFeedbackFrameDelay.Location = new System.Drawing.Point(401, 168);
-            this.lblAimFeedbackFrameDelay.Name = "lblAimFeedbackFrameDelay";
-            this.lblAimFeedbackFrameDelay.Size = new System.Drawing.Size(103, 15);
-            this.lblAimFeedbackFrameDelay.TabIndex = 31;
-            this.lblAimFeedbackFrameDelay.Text = "反馈等待帧";
-            this.toolTipDescriptions.SetToolTip(this.lblAimFeedbackFrameDelay, "发送一次移动后，至少等待多少张新截图再继续修正，可减少旧画面重复拉动。");
+            this.lblAimPredictionLead.AutoSize = true;
+            this.lblAimPredictionLead.Location = new System.Drawing.Point(401, 168);
+            this.lblAimPredictionLead.Name = "lblAimPredictionLead";
+            this.lblAimPredictionLead.Size = new System.Drawing.Size(103, 15);
+            this.lblAimPredictionLead.TabIndex = 31;
+            this.lblAimPredictionLead.Text = "预测提前(ms)";
+            this.toolTipDescriptions.SetToolTip(this.lblAimPredictionLead, "额外按目标速度向前预测的时间。值越大越容易跟快速横移目标，但过大可能领先过头。");
             // 
-            // numAimFeedbackFrameDelay
+            // numAimPredictionLead
             // 
-            this.numAimFeedbackFrameDelay.Location = new System.Drawing.Point(510, 166);
-            this.numAimFeedbackFrameDelay.Maximum = new decimal(new int[] {
-            10,
+            this.numAimPredictionLead.Location = new System.Drawing.Point(510, 166);
+            this.numAimPredictionLead.Maximum = new decimal(new int[] {
+            80,
             0,
             0,
             0});
-            this.numAimFeedbackFrameDelay.Name = "numAimFeedbackFrameDelay";
-            this.numAimFeedbackFrameDelay.Size = new System.Drawing.Size(56, 23);
-            this.numAimFeedbackFrameDelay.TabIndex = 32;
-            this.numAimFeedbackFrameDelay.Value = new decimal(new int[] {
-            2,
+            this.numAimPredictionLead.Name = "numAimPredictionLead";
+            this.numAimPredictionLead.Size = new System.Drawing.Size(56, 23);
+            this.numAimPredictionLead.TabIndex = 32;
+            this.numAimPredictionLead.Value = new decimal(new int[] {
+            18,
             0,
             0,
             0});
-            this.toolTipDescriptions.SetToolTip(this.numAimFeedbackFrameDelay, "建议 1~3。截图频率高于游戏刷新率时，这个参数通常很有用。");
+            this.toolTipDescriptions.SetToolTip(this.numAimPredictionLead, "建议 15~35。快速目标可加大，静止目标抖动则减小。");
             // 
             // lblAimStopInsideBoxArea
             // 
@@ -669,10 +675,66 @@
             0});
             this.toolTipDescriptions.SetToolTip(this.numAimStopBoxTopOffset, "建议 10~24。值越小越靠近头部，值越大越靠近身体中部。");
             // 
+            // lblAimMaxPrediction
+            // 
+            this.lblAimMaxPrediction.AutoSize = true;
+            this.lblAimMaxPrediction.Location = new System.Drawing.Point(220, 196);
+            this.lblAimMaxPrediction.Name = "lblAimMaxPrediction";
+            this.lblAimMaxPrediction.Size = new System.Drawing.Size(95, 15);
+            this.lblAimMaxPrediction.TabIndex = 47;
+            this.lblAimMaxPrediction.Text = "预测上限(px)";
+            this.toolTipDescriptions.SetToolTip(this.lblAimMaxPrediction, "限制速度预测最多提前多少像素。提高可增强快速目标跟踪，过高会导致领先。");
+            // 
+            // numAimMaxPrediction
+            // 
+            this.numAimMaxPrediction.Location = new System.Drawing.Point(321, 194);
+            this.numAimMaxPrediction.Maximum = new decimal(new int[] {
+            200,
+            0,
+            0,
+            0});
+            this.numAimMaxPrediction.Name = "numAimMaxPrediction";
+            this.numAimMaxPrediction.Size = new System.Drawing.Size(56, 23);
+            this.numAimMaxPrediction.TabIndex = 48;
+            this.numAimMaxPrediction.Value = new decimal(new int[] {
+            58,
+            0,
+            0,
+            0});
+            this.toolTipDescriptions.SetToolTip(this.numAimMaxPrediction, "建议 50~100。快速横移目标可调高。");
+            // 
+            // lblAimVelocityFeedForward
+            //
+            this.lblAimVelocityFeedForward.AutoSize = true;
+            this.lblAimVelocityFeedForward.Location = new System.Drawing.Point(401, 196);
+            this.lblAimVelocityFeedForward.Name = "lblAimVelocityFeedForward";
+            this.lblAimVelocityFeedForward.Size = new System.Drawing.Size(103, 15);
+            this.lblAimVelocityFeedForward.TabIndex = 49;
+            this.lblAimVelocityFeedForward.Text = "速度前馈(px)";
+            this.toolTipDescriptions.SetToolTip(this.lblAimVelocityFeedForward, "在 P 控制外额外按目标速度补一点移动。提高可更跟手，过高可能追过头。");
+            // 
+            // numAimVelocityFeedForward
+            //
+            this.numAimVelocityFeedForward.Location = new System.Drawing.Point(510, 194);
+            this.numAimVelocityFeedForward.Maximum = new decimal(new int[] {
+            80,
+            0,
+            0,
+            0});
+            this.numAimVelocityFeedForward.Name = "numAimVelocityFeedForward";
+            this.numAimVelocityFeedForward.Size = new System.Drawing.Size(56, 23);
+            this.numAimVelocityFeedForward.TabIndex = 50;
+            this.numAimVelocityFeedForward.Value = new decimal(new int[] {
+            10,
+            0,
+            0,
+            0});
+            this.toolTipDescriptions.SetToolTip(this.numAimVelocityFeedForward, "建议 10~25。快速目标跟不上时可适当加大。");
+            // 
             // lblAimInitialAcquireDistance
             // 
             this.lblAimInitialAcquireDistance.AutoSize = true;
-            this.lblAimInitialAcquireDistance.Location = new System.Drawing.Point(390, 196);
+            this.lblAimInitialAcquireDistance.Location = new System.Drawing.Point(12, 224);
             this.lblAimInitialAcquireDistance.Name = "lblAimInitialAcquireDistance";
             this.lblAimInitialAcquireDistance.Size = new System.Drawing.Size(95, 15);
             this.lblAimInitialAcquireDistance.TabIndex = 41;
@@ -686,7 +748,7 @@
             0,
             0,
             0});
-            this.numAimInitialAcquireDistance.Location = new System.Drawing.Point(491, 194);
+            this.numAimInitialAcquireDistance.Location = new System.Drawing.Point(113, 222);
             this.numAimInitialAcquireDistance.Maximum = new decimal(new int[] {
             500,
             0,
@@ -710,7 +772,7 @@
             // lblAimTrackedAcquireDistance
             // 
             this.lblAimTrackedAcquireDistance.AutoSize = true;
-            this.lblAimTrackedAcquireDistance.Location = new System.Drawing.Point(563, 196);
+            this.lblAimTrackedAcquireDistance.Location = new System.Drawing.Point(220, 224);
             this.lblAimTrackedAcquireDistance.Name = "lblAimTrackedAcquireDistance";
             this.lblAimTrackedAcquireDistance.Size = new System.Drawing.Size(95, 15);
             this.lblAimTrackedAcquireDistance.TabIndex = 43;
@@ -724,7 +786,7 @@
             0,
             0,
             0});
-            this.numAimTrackedAcquireDistance.Location = new System.Drawing.Point(664, 194);
+            this.numAimTrackedAcquireDistance.Location = new System.Drawing.Point(321, 222);
             this.numAimTrackedAcquireDistance.Maximum = new decimal(new int[] {
             300,
             0,
@@ -750,7 +812,7 @@
             this.chkOverlayEnabled.AutoSize = true;
             this.chkOverlayEnabled.Checked = true;
             this.chkOverlayEnabled.CheckState = System.Windows.Forms.CheckState.Checked;
-            this.chkOverlayEnabled.Location = new System.Drawing.Point(12, 224);
+            this.chkOverlayEnabled.Location = new System.Drawing.Point(12, 252);
             this.chkOverlayEnabled.Name = "chkOverlayEnabled";
             this.chkOverlayEnabled.Size = new System.Drawing.Size(146, 19);
             this.chkOverlayEnabled.TabIndex = 35;
@@ -761,7 +823,7 @@
             // 
             // btnPickScreenColor
             // 
-            this.btnPickScreenColor.Location = new System.Drawing.Point(190, 222);
+            this.btnPickScreenColor.Location = new System.Drawing.Point(190, 250);
             this.btnPickScreenColor.Name = "btnPickScreenColor";
             this.btnPickScreenColor.Size = new System.Drawing.Size(100, 23);
             this.btnPickScreenColor.TabIndex = 45;
@@ -772,7 +834,7 @@
             // 
             // txtPickedColor
             // 
-            this.txtPickedColor.Location = new System.Drawing.Point(296, 222);
+            this.txtPickedColor.Location = new System.Drawing.Point(296, 250);
             this.txtPickedColor.Name = "txtPickedColor";
             this.txtPickedColor.ReadOnly = true;
             this.txtPickedColor.Size = new System.Drawing.Size(492, 23);
@@ -783,11 +845,11 @@
             // 
             this.lblParameterHint.AutoSize = true;
             this.lblParameterHint.ForeColor = System.Drawing.SystemColors.GrayText;
-            this.lblParameterHint.Location = new System.Drawing.Point(12, 252);
+            this.lblParameterHint.Location = new System.Drawing.Point(12, 280);
             this.lblParameterHint.Name = "lblParameterHint";
             this.lblParameterHint.Size = new System.Drawing.Size(439, 15);
             this.lblParameterHint.TabIndex = 36;
-            this.lblParameterHint.Text = "参数说明：将鼠标停留在按钮或输入框上可查看用途。新增反馈抑制参数可减少乱飘。";
+            this.lblParameterHint.Text = "参数说明：将鼠标停留在按钮或输入框上可查看用途。预测参数用于增强快速移动目标跟踪。";
             // 
             // lblInferenceBackend
             // 
@@ -826,7 +888,7 @@
             // lblStatus
             // 
             this.lblStatus.AutoSize = true;
-            this.lblStatus.Location = new System.Drawing.Point(12, 274);
+            this.lblStatus.Location = new System.Drawing.Point(12, 302);
             this.lblStatus.Name = "lblStatus";
             this.lblStatus.Size = new System.Drawing.Size(43, 15);
             this.lblStatus.TabIndex = 22;
@@ -835,7 +897,7 @@
             // pictureBoxPreview
             // 
             this.pictureBoxPreview.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.pictureBoxPreview.Location = new System.Drawing.Point(12, 301);
+            this.pictureBoxPreview.Location = new System.Drawing.Point(12, 329);
             this.pictureBoxPreview.Name = "pictureBoxPreview";
             this.pictureBoxPreview.Size = new System.Drawing.Size(776, 330);
             this.pictureBoxPreview.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
@@ -844,7 +906,7 @@
             // 
             // txtDiagnostics
             // 
-            this.txtDiagnostics.Location = new System.Drawing.Point(12, 637);
+            this.txtDiagnostics.Location = new System.Drawing.Point(12, 665);
             this.txtDiagnostics.Multiline = true;
             this.txtDiagnostics.Name = "txtDiagnostics";
             this.txtDiagnostics.ReadOnly = true;
@@ -856,13 +918,17 @@
             // Form1
             // 
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(800, 808);
+            ClientSize = new Size(800, 836);
             Controls.Add(this.txtPickedColor);
             Controls.Add(this.btnPickScreenColor);
             Controls.Add(this.txtDiagnostics);
             Controls.Add(this.pictureBoxPreview);
             Controls.Add(this.cmbInferenceBackend);
             Controls.Add(this.lblInferenceBackend);
+            Controls.Add(this.numAimVelocityFeedForward);
+            Controls.Add(this.lblAimVelocityFeedForward);
+            Controls.Add(this.numAimMaxPrediction);
+            Controls.Add(this.lblAimMaxPrediction);
             Controls.Add(this.numAimTrackedAcquireDistance);
             Controls.Add(this.lblAimTrackedAcquireDistance);
             Controls.Add(this.numAimInitialAcquireDistance);
@@ -873,8 +939,8 @@
             Controls.Add(this.lblAimStopInsideBoxArea);
             Controls.Add(this.chkOverlayEnabled);
             Controls.Add(this.lblParameterHint);
-            Controls.Add(this.numAimFeedbackFrameDelay);
-            Controls.Add(this.lblAimFeedbackFrameDelay);
+            Controls.Add(this.numAimPredictionLead);
+            Controls.Add(this.lblAimPredictionLead);
             Controls.Add(this.numAimMoveCooldown);
             Controls.Add(this.lblAimMoveCooldown);
             Controls.Add(this.numAimCloseRangeSlowdown);
@@ -926,9 +992,11 @@
             ((System.ComponentModel.ISupportInitialize)(this.numAimTrackingBlend)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimCloseRangeSlowdown)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimMoveCooldown)).EndInit();
-            ((System.ComponentModel.ISupportInitialize)(this.numAimFeedbackFrameDelay)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimPredictionLead)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimStopInsideBoxArea)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimStopBoxTopOffset)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimMaxPrediction)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAimVelocityFeedForward)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimInitialAcquireDistance)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numAimTrackedAcquireDistance)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBoxPreview)).EndInit();
@@ -969,12 +1037,16 @@
         private System.Windows.Forms.NumericUpDown numAimCloseRangeSlowdown;
         private System.Windows.Forms.Label lblAimMoveCooldown;
         private System.Windows.Forms.NumericUpDown numAimMoveCooldown;
-        private System.Windows.Forms.Label lblAimFeedbackFrameDelay;
-        private System.Windows.Forms.NumericUpDown numAimFeedbackFrameDelay;
+        private System.Windows.Forms.Label lblAimPredictionLead;
+        private System.Windows.Forms.NumericUpDown numAimPredictionLead;
         private System.Windows.Forms.Label lblAimStopInsideBoxArea;
         private System.Windows.Forms.NumericUpDown numAimStopInsideBoxArea;
         private System.Windows.Forms.Label lblAimStopBoxTopOffset;
         private System.Windows.Forms.NumericUpDown numAimStopBoxTopOffset;
+        private System.Windows.Forms.Label lblAimMaxPrediction;
+        private System.Windows.Forms.NumericUpDown numAimMaxPrediction;
+        private System.Windows.Forms.Label lblAimVelocityFeedForward;
+        private System.Windows.Forms.NumericUpDown numAimVelocityFeedForward;
         private System.Windows.Forms.Label lblAimInitialAcquireDistance;
         private System.Windows.Forms.NumericUpDown numAimInitialAcquireDistance;
         private System.Windows.Forms.Label lblAimTrackedAcquireDistance;

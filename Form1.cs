@@ -15,7 +15,9 @@ namespace YOLOForAim
         private const int DefaultAimTargetTrackingBlendPercent = 35;
         private const int DefaultAimCloseRangeSlowdownPixels = 64;
         private const int DefaultAimMoveCooldownMs = 10;
-        private const int DefaultAimFeedbackFrameDelay = 2;
+        private const int DefaultAimPredictionLeadMs = 18;
+        private const int DefaultAimMaxPredictionPixels = 58;
+        private const int DefaultAimVelocityFeedForwardMaxPixels = 10;
         private const int DefaultAimInitialAcquireDistancePixels = 240;
         private const int DefaultAimTrackedAcquireDistancePixels = 90;
         private const int DefaultAimStopLockSquareSizePixels = 36;
@@ -67,7 +69,9 @@ namespace YOLOForAim
             numAimTrackingBlend.Value = DefaultAimTargetTrackingBlendPercent;
             numAimCloseRangeSlowdown.Value = DefaultAimCloseRangeSlowdownPixels;
             numAimMoveCooldown.Value = DefaultAimMoveCooldownMs;
-            numAimFeedbackFrameDelay.Value = DefaultAimFeedbackFrameDelay;
+            numAimPredictionLead.Value = DefaultAimPredictionLeadMs;
+            numAimMaxPrediction.Value = DefaultAimMaxPredictionPixels;
+            numAimVelocityFeedForward.Value = DefaultAimVelocityFeedForwardMaxPixels;
             numAimInitialAcquireDistance.Value = DefaultAimInitialAcquireDistancePixels;
             numAimTrackedAcquireDistance.Value = DefaultAimTrackedAcquireDistancePixels;
             numAimStopInsideBoxArea.Value = DefaultAimStopLockSquareSizePixels;
@@ -89,7 +93,9 @@ namespace YOLOForAim
             numAimTrackingBlend.ValueChanged += AimRuntimeSetting_ValueChanged;
             numAimCloseRangeSlowdown.ValueChanged += AimRuntimeSetting_ValueChanged;
             numAimMoveCooldown.ValueChanged += AimRuntimeSetting_ValueChanged;
-            numAimFeedbackFrameDelay.ValueChanged += AimRuntimeSetting_ValueChanged;
+            numAimPredictionLead.ValueChanged += AimRuntimeSetting_ValueChanged;
+            numAimMaxPrediction.ValueChanged += AimRuntimeSetting_ValueChanged;
+            numAimVelocityFeedForward.ValueChanged += AimRuntimeSetting_ValueChanged;
             UpdateInferenceBackendUi();
             LoadUiSettings();
             UpdateLiveAimRuntimeSettings();
@@ -208,7 +214,9 @@ namespace YOLOForAim
                 (float)numAimTrackingBlend.Value / 100f,
                 (float)numAimCloseRangeSlowdown.Value,
                 (int)numAimMoveCooldown.Value,
-                Math.Max(0, (int)numAimFeedbackFrameDelay.Value),
+                (float)numAimPredictionLead.Value,
+                (float)numAimMaxPrediction.Value,
+                (float)numAimVelocityFeedForward.Value,
                 (float)numAimInitialAcquireDistance.Value,
                 (float)numAimTrackedAcquireDistance.Value,
                 (float)numAimStopInsideBoxArea.Value,

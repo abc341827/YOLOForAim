@@ -9,9 +9,7 @@ namespace YOLOForAim;
 /// </summary>
 internal sealed class AimTargetPredictor
 {
-    private const float PredictionLeadSeconds = 0.018f;
-    private const float MaxPredictionSeconds = 0.055f;
-    private const float MaxPredictionPixels = 58f;
+    private const float MaxPredictionSeconds = 0.085f;
     private const float MaxTrackingGapSeconds = 0.12f;
 
     private readonly AimRuntimeState state;
@@ -27,7 +25,7 @@ internal sealed class AimTargetPredictor
         kalmanFilter = null;
     }
 
-    public TargetPrediction Predict(PointF observedTargetPoint, bool resetTargetTracking, long now, long capturedTick)
+    public TargetPrediction Predict(PointF observedTargetPoint, bool resetTargetTracking, long now, long capturedTick, AimRuntimeSettings settings)
     {
         if (resetTargetTracking || state.PreviousObservedTargetPoint is null || state.PreviousObservedTargetTick <= 0)
         {
@@ -51,11 +49,11 @@ internal sealed class AimTargetPredictor
         state.PreviousObservedTargetPoint = observedTargetPoint;
         state.PreviousObservedTargetTick = now;
 
-        float predictionSeconds = Math.Clamp(((now - capturedTick) / 1000f) + PredictionLeadSeconds, 0f, MaxPredictionSeconds);
-        return new TargetPrediction(kalmanFilter.Predict(predictionSeconds, MaxPredictionPixels), kalmanFilter.Velocity);
+        float predictionSeconds = GetPredictionSeconds(now, capturedTick, settings);
+        return new TargetPrediction(kalmanFilter.Predict(predictionSeconds, Math.Max(0f, settings.MaxPredictionPixels)), kalmanFilter.Velocity);
     }
 
-    public bool TryPredictCurrent(long now, long capturedTick, long lastUpdateTick, out TargetPrediction prediction)
+    public bool TryPredictCurrent(long now, long capturedTick, long lastUpdateTick, AimRuntimeSettings settings, out TargetPrediction prediction)
     {
         prediction = default;
         if (kalmanFilter is null || state.PreviousObservedTargetTick <= 0)
@@ -69,9 +67,15 @@ internal sealed class AimTargetPredictor
             return false;
         }
 
-        float predictionSeconds = Math.Clamp(((now - capturedTick) / 1000f) + PredictionLeadSeconds, 0f, MaxPredictionSeconds);
-        prediction = new TargetPrediction(kalmanFilter.Predict(predictionSeconds, MaxPredictionPixels), kalmanFilter.Velocity);
+        float predictionSeconds = GetPredictionSeconds(now, capturedTick, settings);
+        prediction = new TargetPrediction(kalmanFilter.Predict(predictionSeconds, Math.Max(0f, settings.MaxPredictionPixels)), kalmanFilter.Velocity);
         return true;
+    }
+
+    private static float GetPredictionSeconds(long now, long capturedTick, AimRuntimeSettings settings)
+    {
+        float leadSeconds = Math.Clamp(settings.PredictionLeadMilliseconds / 1000f, 0f, MaxPredictionSeconds);
+        return Math.Clamp(((now - capturedTick) / 1000f) + leadSeconds, 0f, MaxPredictionSeconds);
     }
 }
 

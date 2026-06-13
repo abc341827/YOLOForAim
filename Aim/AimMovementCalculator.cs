@@ -10,7 +10,6 @@ internal static class AimMovementCalculator
 {
     private const float VelocityFeedForwardScale = 1.15f;
     private const float MaxVelocityFeedForwardSeconds = 0.018f;
-    private const float MaxVelocityFeedForwardPixels = 10f;
 
     public static float GetDistanceToTarget(PointF targetPoint, PointF referencePoint)
     {
@@ -72,7 +71,7 @@ internal static class AimMovementCalculator
             return PointF.Empty;
         }
 
-        float maxFeedForwardPixels = Math.Min(MaxVelocityFeedForwardPixels, Math.Max(1f, settings.MaxStepPixels * 0.2f));
+        float maxFeedForwardPixels = Math.Max(0f, settings.VelocityFeedForwardMaxPixels);
         if (feedForwardDistance > maxFeedForwardPixels)
         {
             float scale = maxFeedForwardPixels / feedForwardDistance;

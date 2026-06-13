@@ -141,7 +141,7 @@ internal sealed class AimAssistController
 
             DetectionResult stableDetection = targetStabilizer.GetStabilizedDetection(currentDetection, captureBounds, resetTargetTracking);
             PointF observedTargetPoint = GetAimPoint(captureBounds, stableDetection, settings, targetWindowWidth);
-            TargetPrediction targetPrediction = targetPredictor.Predict(observedTargetPoint, resetTargetTracking, now, capturedTick);
+            TargetPrediction targetPrediction = targetPredictor.Predict(observedTargetPoint, resetTargetTracking, now, capturedTick, settings);
             PointF targetPoint = targetPrediction.PredictedPoint;
             state.LockedTargetScreenPoint = GetAimPoint(captureBounds, currentDetection, settings, targetWindowWidth);
             state.SmoothedTargetScreenPoint = state.SmoothedTargetScreenPoint is null || resetTargetTracking
@@ -185,7 +185,7 @@ internal sealed class AimAssistController
             }
 
             if (now - lastTargetUpdateTick > MaxControlTargetAgeMs ||
-                !targetPredictor.TryPredictCurrent(now, lastTargetCapturedTick, lastTargetUpdateTick, out TargetPrediction targetPrediction))
+                !targetPredictor.TryPredictCurrent(now, lastTargetCapturedTick, lastTargetUpdateTick, settings, out TargetPrediction targetPrediction))
             {
                 ClearControlTarget();
                 return;

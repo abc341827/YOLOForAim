@@ -27,30 +27,9 @@ internal sealed class AimAssistGate
         return isLeftMouseButtonDown || (now - state.LastFireActivityTick) <= settings.AssistFireGracePeriodMs;
     }
 
-    public bool CanSendMove(AimRuntimeSettings settings, long now, int processedFrameVersion)
-    {
-        if (state.LastAimMoveFrameVersion == processedFrameVersion)
-        {
-            return false;
-        }
-
-        if (state.LastAimMoveTick > 0 && settings.MoveCooldownMs > 0 && now - state.LastAimMoveTick < settings.MoveCooldownMs)
-        {
-            return false;
-        }
-
-        return state.LastAimMoveFrameVersion < 0 || processedFrameVersion - state.LastAimMoveFrameVersion > settings.FeedbackFrameDelay;
-    }
-
     public bool CanSendMoveByTime(AimRuntimeSettings settings, long now)
     {
         return state.LastAimMoveTick <= 0 || settings.MoveCooldownMs <= 0 || now - state.LastAimMoveTick >= settings.MoveCooldownMs;
-    }
-
-    public void MarkMoveSent(long now, int processedFrameVersion)
-    {
-        state.LastAimMoveTick = now;
-        state.LastAimMoveFrameVersion = processedFrameVersion;
     }
 
     public void MarkMoveSent(long now)

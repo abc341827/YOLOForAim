@@ -21,7 +21,9 @@ internal sealed record UiSettings(
     int AimTrackingBlendPercent = UiSettings.DefaultAimTargetTrackingBlendPercent,
     int AimCloseRangeSlowdownPixels = UiSettings.DefaultAimCloseRangeSlowdownPixels,
     int AimMoveCooldownMs = UiSettings.DefaultAimMoveCooldownMs,
-    int AimFeedbackFrameDelay = UiSettings.DefaultAimFeedbackFrameDelay,
+    int AimPredictionLeadMs = UiSettings.DefaultAimPredictionLeadMs,
+    int AimMaxPredictionPixels = UiSettings.DefaultAimMaxPredictionPixels,
+    int AimVelocityFeedForwardMaxPixels = UiSettings.DefaultAimVelocityFeedForwardMaxPixels,
     int AimInitialAcquireDistancePixels = UiSettings.DefaultAimInitialAcquireDistancePixels,
     int AimTrackedAcquireDistancePixels = UiSettings.DefaultAimTrackedAcquireDistancePixels,
     int AimStopLockSquareSizePixels = UiSettings.DefaultAimStopLockSquareSizePixels,
@@ -33,7 +35,9 @@ internal sealed record UiSettings(
     public const int DefaultAimTargetTrackingBlendPercent = 35;
     public const int DefaultAimCloseRangeSlowdownPixels = 64;
     public const int DefaultAimMoveCooldownMs = 10;
-    public const int DefaultAimFeedbackFrameDelay = 2;
+    public const int DefaultAimPredictionLeadMs = 18;
+    public const int DefaultAimMaxPredictionPixels = 58;
+    public const int DefaultAimVelocityFeedForwardMaxPixels = 10;
     public const int DefaultAimInitialAcquireDistancePixels = 240;
     public const int DefaultAimTrackedAcquireDistancePixels = 90;
     public const int DefaultAimStopLockSquareSizePixels = 36;
