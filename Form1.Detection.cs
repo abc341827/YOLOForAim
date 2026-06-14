@@ -237,13 +237,14 @@ public partial class Form1
                     DetectionResult[] controlDetections = result.Detections
                         .Select(detection => AimPointCalculator.GetControlDetection(detection, currentAimSettings, targetWindowWidth))
                         .ToArray();
+                    Rectangle aimReferenceBounds = GetAimReferenceBounds(frameToProcess.ClientBounds, currentAimSettings.StopLockTopOffsetPixels);
                     Point aimReferencePoint = new(
-                        frameToProcess.ClientBounds.Left + (frameToProcess.ClientBounds.Width / 2),
-                        frameToProcess.ClientBounds.Top + (frameToProcess.ClientBounds.Height / 2));
+                        aimReferenceBounds.Left + (aimReferenceBounds.Width / 2),
+                        aimReferenceBounds.Top + (aimReferenceBounds.Height / 2));
                     IReadOnlyList<DetectionResult> primaryDetections = primaryTargetTracker.SelectPrimaryTarget(controlDetections, frameToProcess.ScreenBounds, aimReferencePoint, currentAimSettings);
-                    TryMoveMouseToNearestDetection(primaryDetections, frameToProcess.ScreenBounds, frameToProcess.ClientBounds, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
+                    TryMoveMouseToNearestDetection(primaryDetections, frameToProcess.ScreenBounds, aimReferenceBounds, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
                     IReadOnlyList<DetectionResult> displayDetections = result.DisplayDetections ?? result.Detections;
-                    UpdateOverlayState(frameToProcess.ScreenBounds, frameToProcess.ClientBounds, primaryDetections, displayDetections, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
+                    UpdateOverlayState(frameToProcess.ScreenBounds, aimReferenceBounds, primaryDetections, displayDetections, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
                     processedFrameCounter++;
                     inferenceFpsCounter.AddFrame(detectStopwatch.Elapsed.TotalMilliseconds);
 

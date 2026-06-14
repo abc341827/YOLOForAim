@@ -288,7 +288,8 @@ internal sealed class AimAssistController
                 lastCalibrationMoveSentTick = sentTick;
             }
 
-            RegisterPendingAimMove(finalMove, sentTick);
+            pendingAimMoves.Clear();
+            state.PendingAimCompensation = PointF.Empty;
             assistGate.MarkMoveSent(sentTick);
             state.LastAimMoveFrameVersion = lastTargetUpdateFrameVersion;
             ResetPullStateForNextDetection();
@@ -406,6 +407,9 @@ internal sealed class AimAssistController
 
     private static Point CalculateDirectCenteringMove(PointF targetPoint, PointF aimReferencePoint, AimRuntimeSettings settings, PointF targetVelocity, float calibratedPixelsPerMouseUnitX, float calibratedPixelsPerMouseUnitY)
     {
+        _ = targetVelocity;
+        _ = calibratedPixelsPerMouseUnitX;
+        _ = calibratedPixelsPerMouseUnitY;
         float errorX = targetPoint.X - aimReferencePoint.X;
         float errorY = targetPoint.Y - aimReferencePoint.Y;
         float distance = MathF.Sqrt((errorX * errorX) + (errorY * errorY));
@@ -415,28 +419,8 @@ internal sealed class AimAssistController
         }
 
         float gain = Math.Max(0.01f, settings.SmoothingFactor * settings.SpeedMultiplier);
-        float moveX = MathF.Abs(calibratedPixelsPerMouseUnitX) > 0.001f
-            ? (errorX / calibratedPixelsPerMouseUnitX) * gain
-            : errorX * gain;
-        float moveY = MathF.Abs(calibratedPixelsPerMouseUnitY) > 0.001f
-            ? (errorY / calibratedPixelsPerMouseUnitY) * gain
-            : errorY * gain;
-        if (settings.VelocityFeedForwardMaxPixels > 0f)
-        {
-            float feedForwardSeconds = Math.Clamp(settings.PredictionLeadMilliseconds / 1000f, 0f, 0.085f);
-            float feedForwardX = targetVelocity.X * feedForwardSeconds * settings.SpeedMultiplier;
-            float feedForwardY = targetVelocity.Y * feedForwardSeconds * settings.SpeedMultiplier;
-            float feedForwardDistance = MathF.Sqrt((feedForwardX * feedForwardX) + (feedForwardY * feedForwardY));
-            if (feedForwardDistance > settings.VelocityFeedForwardMaxPixels && feedForwardDistance > 0.001f)
-            {
-                float feedForwardScale = settings.VelocityFeedForwardMaxPixels / feedForwardDistance;
-                feedForwardX *= feedForwardScale;
-                feedForwardY *= feedForwardScale;
-            }
-
-            moveX += feedForwardX;
-            moveY += feedForwardY;
-        }
+        float moveX = errorX * gain;
+        float moveY = errorY * gain;
 
         return ClampMoveLength(moveX, moveY, Math.Max(1f, settings.MaxStepPixels * Math.Max(0.01f, settings.SpeedMultiplier)));
     }

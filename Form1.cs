@@ -397,6 +397,9 @@ namespace YOLOForAim
             toolTipDescriptions.SetToolTip(numAimMoveCooldown, "两次鼠标移动之间的最小间隔。默认 16ms；每个检测结果最多只会触发一次移动。 ");
             lblAimCalibrationStep.Text = "校准步长";
             toolTipDescriptions.SetToolTip(lblAimCalibrationStep, "按 X 自动校准时每次发送的小步鼠标指令量。建议 5~12。 ");
+            lblAimStopBoxTopOffset.Text = "顶部栏目(px)";
+            toolTipDescriptions.SetToolTip(lblAimStopBoxTopOffset, "实际游戏画面顶部被栏目占用的高度。蓝色参考点会从客户区扣掉这段高度后再取中心。 ");
+            toolTipDescriptions.SetToolTip(numAimStopBoxTopOffset, "调到蓝色十字与真实准心重合；只影响准心参考点，不改变绿色控制框和青色瞄准点。 ");
             lblParameterHint.Text = "当前模式：高频检测 + 高频中心伺服。按 Z 开启检测，按 X 自动校准鼠标单位与画面像素比例。";
 
             numAimMaxStep.Maximum = 1000;
@@ -421,7 +424,6 @@ namespace YOLOForAim
                 lblAimInitialAcquireDistance, numAimInitialAcquireDistance,
                 lblAimTrackedAcquireDistance, numAimTrackedAcquireDistance,
                 lblAimStopInsideBoxArea, numAimStopInsideBoxArea,
-                lblAimStopBoxTopOffset, numAimStopBoxTopOffset,
                 chkAimCalibrationMode
             };
 
@@ -444,6 +446,16 @@ namespace YOLOForAim
                 (frameHeight - squareSize) / 2,
                 squareSize,
                 squareSize);
+        }
+
+        private static Rectangle GetAimReferenceBounds(Rectangle clientBounds, float topBarHeightPixels)
+        {
+            int topBarHeight = (int)MathF.Round(Math.Clamp(topBarHeightPixels, 0f, Math.Max(0, clientBounds.Height - 1)));
+            return new Rectangle(
+                clientBounds.Left,
+                clientBounds.Top + topBarHeight,
+                clientBounds.Width,
+                Math.Max(1, clientBounds.Height - topBarHeight));
         }
 
         private void OverlayRefreshTimer_Tick(object? sender, EventArgs e)
