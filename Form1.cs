@@ -400,6 +400,16 @@ namespace YOLOForAim
             lblAimStopBoxTopOffset.Text = "顶部栏目(px)";
             toolTipDescriptions.SetToolTip(lblAimStopBoxTopOffset, "实际游戏画面顶部被栏目占用的高度。蓝色参考点会从客户区扣掉这段高度后再取中心。 ");
             toolTipDescriptions.SetToolTip(numAimStopBoxTopOffset, "调到蓝色十字与真实准心重合；只影响准心参考点，不改变绿色控制框和青色瞄准点。 ");
+            lblAimMaxPrediction.Text = "中心X微调(px)";
+            numAimMaxPrediction.Minimum = -300;
+            numAimMaxPrediction.Maximum = 300;
+            toolTipDescriptions.SetToolTip(lblAimMaxPrediction, "蓝色参考点的水平微调。正数向右，负数向左。 ");
+            toolTipDescriptions.SetToolTip(numAimMaxPrediction, "蓝色参考点的水平微调。正数向右，负数向左。 ");
+            lblAimVelocityFeedForward.Text = "中心Y微调(px)";
+            numAimVelocityFeedForward.Minimum = -300;
+            numAimVelocityFeedForward.Maximum = 300;
+            toolTipDescriptions.SetToolTip(lblAimVelocityFeedForward, "蓝色参考点的垂直微调。正数向下，负数向上。 ");
+            toolTipDescriptions.SetToolTip(numAimVelocityFeedForward, "蓝色参考点的垂直微调。正数向下，负数向上。 ");
             lblParameterHint.Text = "当前模式：高频检测 + 高频中心伺服。按 Z 开启检测，按 X 自动校准鼠标单位与画面像素比例。";
 
             numAimMaxStep.Maximum = 1000;
@@ -419,8 +429,6 @@ namespace YOLOForAim
                 lblAimTrackingBlend, numAimTrackingBlend,
                 lblAimCloseRangeSlowdown, numAimCloseRangeSlowdown,
                 lblAimPredictionLead, numAimPredictionLead,
-                lblAimMaxPrediction, numAimMaxPrediction,
-                lblAimVelocityFeedForward, numAimVelocityFeedForward,
                 lblAimInitialAcquireDistance, numAimInitialAcquireDistance,
                 lblAimTrackedAcquireDistance, numAimTrackedAcquireDistance,
                 lblAimStopInsideBoxArea, numAimStopInsideBoxArea,
@@ -448,12 +456,14 @@ namespace YOLOForAim
                 squareSize);
         }
 
-        private static Rectangle GetAimReferenceBounds(Rectangle clientBounds, float topBarHeightPixels)
+        private static Rectangle GetAimReferenceBounds(Rectangle clientBounds, float topBarHeightPixels, float centerOffsetX, float centerOffsetY)
         {
             int topBarHeight = (int)MathF.Round(Math.Clamp(topBarHeightPixels, 0f, Math.Max(0, clientBounds.Height - 1)));
+            int offsetX = (int)MathF.Round(centerOffsetX);
+            int offsetY = (int)MathF.Round(centerOffsetY);
             return new Rectangle(
-                clientBounds.Left,
-                clientBounds.Top + topBarHeight,
+                clientBounds.Left + offsetX,
+                clientBounds.Top + topBarHeight + offsetY,
                 clientBounds.Width,
                 Math.Max(1, clientBounds.Height - topBarHeight));
         }

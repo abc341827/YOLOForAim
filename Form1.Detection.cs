@@ -237,7 +237,11 @@ public partial class Form1
                     DetectionResult[] controlDetections = result.Detections
                         .Select(detection => AimPointCalculator.GetControlDetection(detection, currentAimSettings, targetWindowWidth))
                         .ToArray();
-                    Rectangle aimReferenceBounds = GetAimReferenceBounds(frameToProcess.ClientBounds, currentAimSettings.StopLockTopOffsetPixels);
+                    Rectangle aimReferenceBounds = GetAimReferenceBounds(
+                        frameToProcess.ClientBounds,
+                        currentAimSettings.StopLockTopOffsetPixels,
+                        currentAimSettings.MaxPredictionPixels,
+                        currentAimSettings.VelocityFeedForwardMaxPixels);
                     Point aimReferencePoint = new(
                         aimReferenceBounds.Left + (aimReferenceBounds.Width / 2),
                         aimReferenceBounds.Top + (aimReferenceBounds.Height / 2));

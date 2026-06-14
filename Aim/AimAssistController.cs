@@ -37,6 +37,7 @@ internal sealed class AimAssistController
     private PointF lastControlObservedTargetPoint;
     private Point lastControlMove = Point.Empty;
     private long lastControlMoveTick;
+    private long lastAimMoveSentTick;
     private readonly List<PendingAimMove> pendingAimMoves = new();
     private PointF lastCalibrationError;
     private Point lastCalibrationMove;
@@ -137,6 +138,11 @@ internal sealed class AimAssistController
         {
             long now = Environment.TickCount64;
             if (processedFrameVersion <= state.SuspendAimUntilFrameVersion || now < state.SuspendAimUntilTick)
+            {
+                return;
+            }
+
+            if (lastAimMoveSentTick > 0 && capturedTick <= lastAimMoveSentTick)
             {
                 return;
             }
@@ -281,6 +287,7 @@ internal sealed class AimAssistController
             lastControlMoveTick = now;
             SendRelativeMouseMove(finalMove.X, finalMove.Y);
             long sentTick = Environment.TickCount64;
+            lastAimMoveSentTick = sentTick;
             if (calibrationMode)
             {
                 lastCalibrationError = new PointF(targetPoint.X - aimReferencePoint.X, targetPoint.Y - aimReferencePoint.Y);
