@@ -798,7 +798,7 @@
             0});
             this.numAimInitialAcquireDistance.Location = new System.Drawing.Point(113, 222);
             this.numAimInitialAcquireDistance.Maximum = new decimal(new int[] {
-            500,
+            1000,
             0,
             0,
             0});
@@ -836,7 +836,7 @@
             0});
             this.numAimTrackedAcquireDistance.Location = new System.Drawing.Point(321, 222);
             this.numAimTrackedAcquireDistance.Maximum = new decimal(new int[] {
-            300,
+            1000,
             0,
             0,
             0});
