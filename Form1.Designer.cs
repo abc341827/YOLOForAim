@@ -274,8 +274,8 @@
             this.lblAimHeightPercent.Name = "lblAimHeightPercent";
             this.lblAimHeightPercent.Size = new System.Drawing.Size(119, 15);
             this.lblAimHeightPercent.TabIndex = 9;
-            this.lblAimHeightPercent.Text = "框下方偏移(px)";
-            this.toolTipDescriptions.SetToolTip(this.lblAimHeightPercent, "瞄准点位于检测框下方，数值表示从检测框底部继续向下偏移多少像素。0 表示检测框底边中点。");
+            this.lblAimHeightPercent.Text = "目标框偏移(px)";
+            this.toolTipDescriptions.SetToolTip(this.lblAimHeightPercent, "用于从颜色像素推导目标框位置；拉动点始终取目标框中心。");
             // 
             // numAimHeightPercent
             // 
@@ -293,7 +293,7 @@
             0,
             0,
             0});
-            this.toolTipDescriptions.SetToolTip(this.numAimHeightPercent, "单位像素，表示从检测框底部向下的瞄准点偏移。数值越大，瞄准点越低。");
+            this.toolTipDescriptions.SetToolTip(this.numAimHeightPercent, "单位像素，只影响颜色像素推导出的目标框位置；不会改变目标点始终取框中心的规则。");
             // 
             // lblAimDeadzone
             // 

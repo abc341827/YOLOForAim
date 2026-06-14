@@ -242,7 +242,8 @@ public partial class Form1
                         frameToProcess.WindowBounds.Top + (frameToProcess.WindowBounds.Height / 2));
                     IReadOnlyList<DetectionResult> primaryDetections = primaryTargetTracker.SelectPrimaryTarget(controlDetections, frameToProcess.ScreenBounds, aimReferencePoint, currentAimSettings);
                     TryMoveMouseToNearestDetection(primaryDetections, frameToProcess.ScreenBounds, frameToProcess.WindowBounds, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
-                    UpdateOverlayState(frameToProcess.ScreenBounds, frameToProcess.WindowBounds, primaryDetections, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
+                    IReadOnlyList<DetectionResult> displayDetections = result.DisplayDetections ?? result.Detections;
+                    UpdateOverlayState(frameToProcess.ScreenBounds, frameToProcess.WindowBounds, primaryDetections, displayDetections, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
                     processedFrameCounter++;
                     inferenceFpsCounter.AddFrame(detectStopwatch.Elapsed.TotalMilliseconds);
 

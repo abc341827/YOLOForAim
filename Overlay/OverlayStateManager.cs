@@ -12,6 +12,7 @@ internal sealed class OverlayStateManager
     private readonly object syncRoot = new();
     private readonly OverlayTracker tracker = new();
     private Rectangle captureBounds;
+    private DetectionResult[] displayDetections = Array.Empty<DetectionResult>();
     private DetectionResult[] detections = Array.Empty<DetectionResult>();
     private DetectionResult? lockedDetection;
     private PointF? aimPoint;
@@ -20,6 +21,7 @@ internal sealed class OverlayStateManager
 
     public void Update(
         Rectangle newCaptureBounds,
+        IReadOnlyList<DetectionResult> newDisplayDetections,
         IReadOnlyList<DetectionResult> rawDetections,
         int processedFrameVersion,
         int suppressOverlayFrameVersion,
@@ -37,6 +39,9 @@ internal sealed class OverlayStateManager
         lock (syncRoot)
         {
             captureBounds = newCaptureBounds;
+            displayDetections = processedFrameVersion <= suppressOverlayFrameVersion
+                ? Array.Empty<DetectionResult>()
+                : newDisplayDetections.ToArray();
             if (overlayDetections.Count > 0)
             {
                 detections = overlayDetections.ToArray();
@@ -59,7 +64,7 @@ internal sealed class OverlayStateManager
     {
         lock (syncRoot)
         {
-            return new DetectionOverlaySnapshot(captureBounds, detections, lockedDetection, aimPoint, cursorPoint);
+            return new DetectionOverlaySnapshot(captureBounds, displayDetections, detections, lockedDetection, aimPoint, cursorPoint);
         }
     }
 
@@ -68,6 +73,7 @@ internal sealed class OverlayStateManager
         lock (syncRoot)
         {
             captureBounds = Rectangle.Empty;
+            displayDetections = Array.Empty<DetectionResult>();
             detections = Array.Empty<DetectionResult>();
             lockedDetection = null;
             aimPoint = null;

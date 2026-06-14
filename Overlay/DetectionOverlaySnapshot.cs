@@ -7,6 +7,7 @@ namespace YOLOForAim;
 /// </summary>
 internal sealed record DetectionOverlaySnapshot(
     Rectangle CaptureBounds,
+    DetectionResult[] DisplayDetections,
     DetectionResult[] Detections,
     DetectionResult? LockedDetection,
     PointF? AimPoint,
