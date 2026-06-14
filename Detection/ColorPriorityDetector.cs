@@ -21,8 +21,8 @@ internal sealed class ColorPriorityDetector : IDetector, IColorDetectionOptionsS
         DetectionRunResult colorResult = colorDetector.Detect(sourcePixels, sourceWidth, sourceHeight, sourceStride, sourceRegion, referenceWidth);
         DetectionRunResult fallbackResult = fallbackDetector.Detect(sourcePixels, sourceWidth, sourceHeight, sourceStride, sourceRegion, referenceWidth);
         return colorResult.Detections.Count > 0
-            ? colorResult
-            : fallbackResult;
+            ? new DetectionRunResult(colorResult.Detections, fallbackResult.Detections)
+            : new DetectionRunResult(fallbackResult.Detections, fallbackResult.Detections);
     }
 
     public void UpdateColorDetectionOptions(ColorDetectionOptions primaryOptions)

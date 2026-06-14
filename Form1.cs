@@ -462,7 +462,7 @@ namespace YOLOForAim
             RefreshDetectionOverlay();
         }
 
-        private void UpdateOverlayState(Rectangle captureBounds, Rectangle windowBounds, IReadOnlyList<DetectionResult> detections, int targetWindowWidth, int processedFrameVersion, long capturedTick)
+        private void UpdateOverlayState(Rectangle captureBounds, Rectangle windowBounds, IReadOnlyList<DetectionResult> detections, IReadOnlyList<DetectionResult> displayDetections, int targetWindowWidth, int processedFrameVersion, long capturedTick)
         {
             Point windowCenter = new(
                 windowBounds.Left + (windowBounds.Width / 2),
@@ -472,6 +472,7 @@ namespace YOLOForAim
                 .ToArray();
             overlayStateManager.Update(
                 captureBounds,
+                displayDetections,
                 controlDetections,
                 processedFrameVersion,
                 aimAssistController.SuppressOverlayFrameVersion,
@@ -508,7 +509,7 @@ namespace YOLOForAim
             EnsureDetectionOverlay();
 
             DetectionOverlaySnapshot snapshot = overlayStateManager.GetSnapshot();
-            detectionOverlay?.UpdateDetections(selectedHwnd, snapshot.CaptureBounds, snapshot.Detections, snapshot.LockedDetection, snapshot.AimPoint, snapshot.CursorPoint, currentAimSettings.StopLockSquareSizePixels, currentAimSettings.StopLockTopOffsetPixels);
+            detectionOverlay?.UpdateDetections(selectedHwnd, snapshot.CaptureBounds, snapshot.DisplayDetections, snapshot.Detections, snapshot.LockedDetection, snapshot.AimPoint, snapshot.CursorPoint, currentAimSettings.StopLockSquareSizePixels, currentAimSettings.StopLockTopOffsetPixels);
         }
 
         private static CapturedFrame? CaptureWindow(IntPtr hwnd, bool centerRoiOnly, int roiSize)

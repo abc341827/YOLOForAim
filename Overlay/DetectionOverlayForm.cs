@@ -13,6 +13,7 @@ internal sealed class DetectionOverlayForm : Form
 {
     private IntPtr targetHandle = IntPtr.Zero;
     private Rectangle captureBounds = Rectangle.Empty;
+    private IReadOnlyList<DetectionResult> displayDetections = Array.Empty<DetectionResult>();
     private IReadOnlyList<DetectionResult> detections = Array.Empty<DetectionResult>();
     private DetectionResult? lockedDetection;
     private PointF? aimPoint;
@@ -69,7 +70,7 @@ internal sealed class DetectionOverlayForm : Form
         base.WndProc(ref m);
     }
 
-    public void UpdateDetections(IntPtr hwnd, Rectangle newCaptureBounds, IReadOnlyList<DetectionResult> newDetections, DetectionResult? newLockedDetection, PointF? newAimPoint, Point newCursorPoint, float newStopSquareSizePixels, float newStopSquareTopOffsetPixels)
+    public void UpdateDetections(IntPtr hwnd, Rectangle newCaptureBounds, IReadOnlyList<DetectionResult> newDisplayDetections, IReadOnlyList<DetectionResult> newDetections, DetectionResult? newLockedDetection, PointF? newAimPoint, Point newCursorPoint, float newStopSquareSizePixels, float newStopSquareTopOffsetPixels)
     {
         if (hwnd == IntPtr.Zero ||
             !GetWindowRect(hwnd, out var rect) ||
@@ -82,6 +83,7 @@ internal sealed class DetectionOverlayForm : Form
 
         targetHandle = hwnd;
         captureBounds = newCaptureBounds;
+        displayDetections = newDisplayDetections;
         detections = newDetections;
         lockedDetection = newLockedDetection;
         aimPoint = newAimPoint;
@@ -100,7 +102,11 @@ internal sealed class DetectionOverlayForm : Form
         if (wasHidden)
         {
             Show();
-            ApplyCaptureExclusion();
+            if (!ApplyCaptureExclusion())
+            {
+                HideOverlay();
+                return;
+            }
         }
 
         if (boundsChanged || wasHidden)
@@ -115,6 +121,7 @@ internal sealed class DetectionOverlayForm : Form
     {
         targetHandle = IntPtr.Zero;
         captureBounds = Rectangle.Empty;
+        displayDetections = Array.Empty<DetectionResult>();
         detections = Array.Empty<DetectionResult>();
         lockedDetection = null;
         aimPoint = null;
@@ -131,12 +138,13 @@ internal sealed class DetectionOverlayForm : Form
         base.OnPaint(e);
         e.Graphics.Clear(BackColor);
 
-        if (targetHandle == IntPtr.Zero || captureBounds.IsEmpty || detections.Count == 0 || !GetWindowRect(targetHandle, out var rect))
+        if (targetHandle == IntPtr.Zero || captureBounds.IsEmpty || (displayDetections.Count == 0 && detections.Count == 0) || !GetWindowRect(targetHandle, out var rect))
         {
             return;
         }
 
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        using var yoloPen = new Pen(Color.Red, 2f);
         using var pen = new Pen(Color.Lime, 2f);
         using var labelBackground = new SolidBrush(Color.FromArgb(160, 0, 0, 0));
         using var textBrush = new SolidBrush(Color.Yellow);
@@ -146,6 +154,18 @@ internal sealed class DetectionOverlayForm : Form
 
         float offsetX = captureBounds.Left - rect.Left;
         float offsetY = captureBounds.Top - rect.Top;
+
+        foreach (DetectionResult detection in displayDetections)
+        {
+            if (detection.Label.StartsWith("Color", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            float boxX = offsetX + detection.Box.X;
+            float boxY = offsetY + detection.Box.Y;
+            e.Graphics.DrawRectangle(yoloPen, boxX, boxY, detection.Box.Width, detection.Box.Height);
+        }
 
         foreach (DetectionResult detection in detections)
         {
@@ -169,17 +189,14 @@ internal sealed class DetectionOverlayForm : Form
     {
     }
 
-    private void ApplyCaptureExclusion()
+    private bool ApplyCaptureExclusion()
     {
         if (Handle == IntPtr.Zero)
         {
-            return;
+            return false;
         }
 
-        if (!SetWindowDisplayAffinity(Handle, WDA_EXCLUDEFROMCAPTURE))
-        {
-            SetWindowDisplayAffinity(Handle, WDA_MONITOR);
-        }
+        return SetWindowDisplayAffinity(Handle, WDA_EXCLUDEFROMCAPTURE);
     }
 
     private static RectangleF GetDetectionOverlayBounds(DetectionResult detection, float offsetX, float offsetY)
@@ -207,7 +224,6 @@ internal sealed class DetectionOverlayForm : Form
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool IsIconic(IntPtr hWnd);
 
-    private const uint WDA_MONITOR = 0x00000001;
     private const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
 
     [DllImport("user32.dll", SetLastError = true)]
