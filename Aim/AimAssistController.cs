@@ -185,11 +185,13 @@ internal sealed class AimAssistController
                 return;
             }
 
-            DetectionResult stableDetection = targetStabilizer.GetStabilizedDetection(currentDetection, captureBounds, resetTargetTracking);
-            PointF observedTargetPoint = GetAimPoint(captureBounds, stableDetection, settings, targetWindowWidth);
+            DetectionResult stableDetection = currentDetection;
+            state.StabilizedLockedDetection = currentDetection;
+            state.StabilizedLockedDetectionFrames = 1;
+            PointF observedTargetPoint = GetAimPoint(captureBounds, currentDetection, settings, targetWindowWidth);
             UpdateCalibrationObservation(observedTargetPoint, aimReferencePoint, capturedTick, settings);
-            TargetPrediction targetPrediction = targetPredictor.Predict(observedTargetPoint, resetTargetTracking, now, capturedTick, settings);
-            PointF targetPoint = targetPrediction.PredictedPoint;
+            targetPredictor.Reset();
+            PointF targetPoint = observedTargetPoint;
             state.LockedTargetScreenPoint = GetAimPoint(captureBounds, currentDetection, settings, targetWindowWidth);
             state.SmoothedTargetScreenPoint = state.SmoothedTargetScreenPoint is null || resetTargetTracking
                 ? targetPoint
@@ -228,19 +230,15 @@ internal sealed class AimAssistController
                 return;
             }
 
-            if (now - lastTargetUpdateTick > MaxControlTargetAgeMs ||
-                !targetPredictor.TryPredictCurrent(now, lastTargetCapturedTick, lastTargetUpdateTick, settings, out TargetPrediction targetPrediction))
+            if (now - lastTargetUpdateTick > MaxControlTargetAgeMs)
             {
                 ClearControlTarget();
                 return;
             }
 
             PointF aimReferencePoint = GetAimReferencePoint(lastControlAimReferenceBounds);
-            PointF observedTargetPoint = ApplyPendingCompensation(lastControlObservedTargetPoint);
-            PointF predictedTargetPoint = ApplyPendingCompensation(targetPrediction.PredictedPoint);
-            PointF targetPoint = settings.MaxPredictionPixels > 0f || settings.PredictionLeadMilliseconds > 0f
-                ? predictedTargetPoint
-                : observedTargetPoint;
+            PointF observedTargetPoint = lastControlObservedTargetPoint;
+            PointF targetPoint = observedTargetPoint;
             float distanceToAimPoint = AimMovementCalculator.GetDistanceToTarget(targetPoint, aimReferencePoint);
             if (distanceToAimPoint <= settings.DeadzonePixels)
             {
@@ -271,7 +269,7 @@ internal sealed class AimAssistController
 
             finalMove = calibrationMode
                 ? CalculateCalibrationMove(targetPoint, aimReferencePoint, settings)
-                : CalculateDirectCenteringMove(targetPoint, aimReferencePoint, settings, targetPrediction.Velocity, calibratedPixelsPerMouseUnitX, calibratedPixelsPerMouseUnitY);
+                : CalculateDirectCenteringMove(targetPoint, aimReferencePoint, settings, PointF.Empty, calibratedPixelsPerMouseUnitX, calibratedPixelsPerMouseUnitY);
 
             if (finalMove.IsEmpty)
             {
