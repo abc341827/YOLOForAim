@@ -238,12 +238,12 @@ public partial class Form1
                         .Select(detection => AimPointCalculator.GetControlDetection(detection, currentAimSettings, targetWindowWidth))
                         .ToArray();
                     Point aimReferencePoint = new(
-                        frameToProcess.WindowBounds.Left + (frameToProcess.WindowBounds.Width / 2),
-                        frameToProcess.WindowBounds.Top + (frameToProcess.WindowBounds.Height / 2));
+                        frameToProcess.ClientBounds.Left + (frameToProcess.ClientBounds.Width / 2),
+                        frameToProcess.ClientBounds.Top + (frameToProcess.ClientBounds.Height / 2));
                     IReadOnlyList<DetectionResult> primaryDetections = primaryTargetTracker.SelectPrimaryTarget(controlDetections, frameToProcess.ScreenBounds, aimReferencePoint, currentAimSettings);
-                    TryMoveMouseToNearestDetection(primaryDetections, frameToProcess.ScreenBounds, frameToProcess.WindowBounds, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
+                    TryMoveMouseToNearestDetection(primaryDetections, frameToProcess.ScreenBounds, frameToProcess.ClientBounds, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
                     IReadOnlyList<DetectionResult> displayDetections = result.DisplayDetections ?? result.Detections;
-                    UpdateOverlayState(frameToProcess.ScreenBounds, frameToProcess.WindowBounds, primaryDetections, displayDetections, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
+                    UpdateOverlayState(frameToProcess.ScreenBounds, frameToProcess.ClientBounds, primaryDetections, displayDetections, targetWindowWidth, processedVersion, frameToProcess.CapturedTick);
                     processedFrameCounter++;
                     inferenceFpsCounter.AddFrame(detectStopwatch.Elapsed.TotalMilliseconds);
 

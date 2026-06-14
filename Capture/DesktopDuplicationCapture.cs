@@ -41,6 +41,7 @@ internal sealed class DesktopDuplicationCapture : IDisposable
 
         Rectangle captureBounds;
         Rectangle windowBounds;
+        Rectangle clientBounds;
         int referenceWidth = 0;
         bool frameAcquired = false;
 
@@ -57,7 +58,8 @@ internal sealed class DesktopDuplicationCapture : IDisposable
                 }
 
                 windowBounds = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
-                referenceWidth = windowBounds.Width;
+                clientBounds = TryGetClientBounds(hwnd, out Rectangle bounds) ? bounds : windowBounds;
+                referenceWidth = clientBounds.Width > 0 ? clientBounds.Width : windowBounds.Width;
                 Rectangle requestedBounds = centerRoiOnly
                     ? GetCenteredRoiBounds(windowBounds, roiSize)
                     : windowBounds;
@@ -118,7 +120,7 @@ internal sealed class DesktopDuplicationCapture : IDisposable
                 }
             }
 
-            capturedFrame = new CapturedPixelFrame(pixels, width, height, stride, captureBounds, windowBounds, referenceWidth > 0 ? referenceWidth : width, Environment.TickCount64, centerRoiOnly);
+            capturedFrame = new CapturedPixelFrame(pixels, width, height, stride, captureBounds, windowBounds, clientBounds, referenceWidth > 0 ? referenceWidth : width, Environment.TickCount64, centerRoiOnly);
             return true;
         }
         finally
@@ -135,6 +137,25 @@ internal sealed class DesktopDuplicationCapture : IDisposable
             windowBounds.Top + ((windowBounds.Height - squareSize) / 2),
             squareSize,
             squareSize);
+    }
+
+    private static bool TryGetClientBounds(IntPtr hwnd, out Rectangle bounds)
+    {
+        bounds = Rectangle.Empty;
+        if (!GetClientRect(hwnd, out RECT clientRect))
+        {
+            return false;
+        }
+
+        POINT topLeft = new() { X = clientRect.Left, Y = clientRect.Top };
+        POINT bottomRight = new() { X = clientRect.Right, Y = clientRect.Bottom };
+        if (!ClientToScreen(hwnd, ref topLeft) || !ClientToScreen(hwnd, ref bottomRight))
+        {
+            return false;
+        }
+
+        bounds = Rectangle.FromLTRB(topLeft.X, topLeft.Y, bottomRight.X, bottomRight.Y);
+        return bounds.Width > 0 && bounds.Height > 0;
     }
 
     private void InitializeDuplication()
@@ -293,6 +314,14 @@ internal sealed class DesktopDuplicationCapture : IDisposable
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT
     {
@@ -301,6 +330,13 @@ internal sealed class DesktopDuplicationCapture : IDisposable
         public int Right;
         public int Bottom;
     }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int X;
+        public int Y;
+    }
 }
 
-internal sealed record CapturedPixelFrame(byte[] Pixels, int Width, int Height, int Stride, Rectangle ScreenBounds, Rectangle WindowBounds, int ReferenceWidth, long CapturedTick, bool IsRegionAlreadyCropped);
+internal sealed record CapturedPixelFrame(byte[] Pixels, int Width, int Height, int Stride, Rectangle ScreenBounds, Rectangle WindowBounds, Rectangle ClientBounds, int ReferenceWidth, long CapturedTick, bool IsRegionAlreadyCropped);

@@ -180,9 +180,19 @@ internal sealed class DetectionOverlayForm : Form
             e.Graphics.DrawString(text, Font, textBrush, boxX + 3, labelY + 1);
         }
 
+        if (aimPoint is PointF targetPoint)
+        {
+            float x = targetPoint.X - rect.Left;
+            float y = targetPoint.Y - rect.Top;
+            e.Graphics.FillEllipse(aimPointBrush, x - 3f, y - 3f, 6f, 6f);
+            e.Graphics.DrawLine(Pens.Cyan, x - 8f, y, x + 8f, y);
+            e.Graphics.DrawLine(Pens.Cyan, x, y - 8f, x, y + 8f);
+        }
+
+        e.Graphics.DrawLine(cursorPen, cursorPoint.X - rect.Left - 6f, cursorPoint.Y - rect.Top, cursorPoint.X - rect.Left + 6f, cursorPoint.Y - rect.Top);
+        e.Graphics.DrawLine(cursorPen, cursorPoint.X - rect.Left, cursorPoint.Y - rect.Top - 6f, cursorPoint.X - rect.Left, cursorPoint.Y - rect.Top + 6f);
+
         _ = lockedDetection;
-        _ = aimPoint;
-        _ = cursorPoint;
     }
 
     protected override void OnPaintBackground(PaintEventArgs e)
